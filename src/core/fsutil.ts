@@ -27,9 +27,13 @@ import type { JsonRecord } from './model';
  * instead of separately calling `isUnderRepo`.
  */
 export function toRepoRel(root: string, abs: string): string | null {
+  // Containment is decided on the case-folded forms (Windows paths compare
+  // case-insensitively); the returned name keeps the file's real spelling,
+  // because a repo-relative path is data git and users see.
   const rel = path.relative(canonicalPath(root), canonicalPath(abs));
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  return rel.split(path.sep).join('/');
+  const depth = rel.split(path.sep).length;
+  return realPath(abs).split(/[\\/]/).slice(-depth).join('/');
 }
 
 export function isDir(p: string): boolean {
@@ -154,6 +158,17 @@ export function canonicalPath(
   p: string,
   pathMod: Pick<typeof path, 'resolve' | 'dirname' | 'sep'> = path,
 ): string {
+  const r = realPath(p, pathMod);
+  return process.platform === 'win32' || pathMod === path.win32 ? r.toLowerCase() : r;
+}
+
+/** `canonicalPath` without the case fold: the real, existing spelling of a
+ * path. Use this when the result is shown or stored; use `canonicalPath`
+ * only to compare two paths. */
+export function realPath(
+  p: string,
+  pathMod: Pick<typeof path, 'resolve' | 'dirname' | 'sep'> = path,
+): string {
   let dir = pathMod.resolve(p);
   const tail: string[] = [];
   for (let i = 0; i < 64; i += 1) {
@@ -167,8 +182,7 @@ export function canonicalPath(
       dir = parent;
     }
   }
-  const r = tail.length ? [dir, ...tail.reverse()].join(pathMod.sep) : dir;
-  return process.platform === 'win32' || pathMod === path.win32 ? r.toLowerCase() : r;
+  return tail.length ? [dir, ...tail.reverse()].join(pathMod.sep) : dir;
 }
 
 /**

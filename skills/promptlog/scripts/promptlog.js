@@ -72,7 +72,8 @@ function errorMessage(e) {
 function toRepoRel(root, abs) {
   const rel = import_node_path.default.relative(canonicalPath(root), canonicalPath(abs));
   if (rel === "" || rel.startsWith("..") || import_node_path.default.isAbsolute(rel)) return null;
-  return rel.split(import_node_path.default.sep).join("/");
+  const depth = rel.split(import_node_path.default.sep).length;
+  return realPath(abs).split(/[\\/]/).slice(-depth).join("/");
 }
 function isDir(p) {
   try {
@@ -145,6 +146,10 @@ function findGitRoot(cwd) {
   }
 }
 function canonicalPath(p, pathMod = import_node_path.default) {
+  const r = realPath(p, pathMod);
+  return process.platform === "win32" || pathMod === import_node_path.default.win32 ? r.toLowerCase() : r;
+}
+function realPath(p, pathMod = import_node_path.default) {
   let dir = pathMod.resolve(p);
   const tail = [];
   for (let i = 0; i < 64; i += 1) {
@@ -158,8 +163,7 @@ function canonicalPath(p, pathMod = import_node_path.default) {
       dir = parent;
     }
   }
-  const r = tail.length ? [dir, ...tail.reverse()].join(pathMod.sep) : dir;
-  return process.platform === "win32" || pathMod === import_node_path.default.win32 ? r.toLowerCase() : r;
+  return tail.length ? [dir, ...tail.reverse()].join(pathMod.sep) : dir;
 }
 function isUnderRepo(candidateCwd, repoRoot2, pathMod = import_node_path.default) {
   if (!candidateCwd || !repoRoot2) return false;
