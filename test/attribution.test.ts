@@ -89,6 +89,38 @@ function git(env: NodeJS.ProcessEnv, cwd: string, args: string[]): string {
   return r.stdout;
 }
 
+/**
+ * Diagnostics for the two Windows-only "evidence missing" failures
+ * (case 3, reindex): whether `git diff` staged CRLF the attributor never
+ * saw is the leading theory, but it could not be confirmed without a
+ * Windows box, so print what would confirm or rule it out - dumped through
+ * `console.error` so it survives into the CI log regardless of the
+ * assertion outcome.
+ */
+function dumpAttributionDiagnostics(
+  env: NodeJS.ProcessEnv,
+  repoDir: string,
+  label: string,
+  sha: string | null = null,
+): void {
+  try {
+    const autocrlf = spawnSync('git', ['config', '--get', 'core.autocrlf'], {
+      cwd: repoDir,
+      env,
+      encoding: 'utf8',
+    });
+    const diffArgs = sha ? ['show', '-U0', '--no-color', sha] : ['diff', '--cached', '-U0', '--no-color'];
+    const diff = spawnSync('git', diffArgs, { cwd: repoDir, env, encoding: 'utf8' });
+    console.error(
+      `[attribution diagnostics: ${label}]\n` +
+        `core.autocrlf=${JSON.stringify(autocrlf.stdout.trim())}\n` +
+        `git ${diffArgs.join(' ')}:\n${JSON.stringify(diff.stdout)}`,
+    );
+  } catch (e) {
+    console.error(`[attribution diagnostics: ${label}] failed to collect: ${String(e)}`);
+  }
+}
+
 function promptlog(
   env: NodeJS.ProcessEnv,
   cwd: string,
@@ -958,6 +990,7 @@ describe('attribution', () => {
       expect(rec.commits.length).toBe(2);
       const first = rec.commits.find((e: { sha: string }) => e.sha === sha1);
       const second = rec.commits.find((e: { sha: string }) => e.sha === sha2);
+      if (first?.role !== 'both') dumpAttributionDiagnostics(agentEnv, repoDir, 'case 3, first commit', sha1);
       expect(first.role, 'it wrote file1 and issued the commit').toBe('both');
       expect(first.files['file1.txt']).toEqual({ hunks: 1, matched: 1, confidence: 'edit' });
       expect(second.role).toBe('both');
@@ -1036,6 +1069,7 @@ describe('attribution', () => {
       // Corrupt the cache: a wrong sha, and a lost one.
       const doc = JSON.parse(fs.readFileSync(docPath, 'utf8'));
       const keep = doc.turns[gid].commits[0].files;
+      if (Object.keys(keep).length === 0) dumpAttributionDiagnostics(agentEnv, repoDir, 'reindex', sha);
       expect(keep).toEqual({ 'file1.txt': { hunks: 1, matched: 1, confidence: 'edit' } });
       doc.turns[gid].commits.push({
         sha: 'f'.repeat(40),

@@ -19,7 +19,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, onTestFinished, test } from 'vitest';
 import { slug } from '../src/agents/claude/locate';
+import { installHooks } from '../src/core/commands/hooks';
 import * as recall from '../src/core/commands/recall';
+import { canonicalPath } from '../src/core/fsutil';
 import type { SessionDoc, TurnRecord } from '../src/core/records';
 import type { IndexHeader } from '../src/core/storeIndex';
 import * as storeIndex from '../src/core/storeIndex';
@@ -32,6 +34,26 @@ const SESSION_ID = 'c86e0429-3e3b-4f17-8262-35a6f0c85599';
 const SID8 = SESSION_ID.slice(0, 8);
 
 // -------------------------------------------------------------- scaffolding
+
+/**
+ * Copy `src` (a file or a directory) to `dest`, one file at a time via
+ * `fs.mkdirSync`/`fs.copyFileSync` rather than a single `fs.cpSync(...,
+ * {recursive:true})` call: kept explicit (and symlink-free - never followed,
+ * never copied) for the awkward-checkout-path test below, where a directory
+ * copy needs to be traceable file by file rather than trusted as one opaque
+ * step.
+ */
+function copyEntry(src: string, dest: string): void {
+  const st = fs.lstatSync(src);
+  if (st.isSymbolicLink()) return;
+  if (st.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const name of fs.readdirSync(src)) copyEntry(path.join(src, name), path.join(dest, name));
+    return;
+  }
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(src, dest);
+}
 
 function mkuuid(n: number): string {
   const hex = String(n).padStart(4, '0');
@@ -525,15 +547,21 @@ test('global install: --global sandboxes to a temp HOME and hooks still fire', (
 
   const hookDir = path.join(home, '.promptlog', 'hooks');
   expect(gitOk(env, repoDir, ['config', '--global', '--get', 'core.hooksPath']).trim()).toBe(hookDir);
-  // The real ~/.gitconfig and ~/.promptlog were never touched. git itself
-  // writes a hooksPath value with `/`-only separators into the config file
-  // regardless of host, so normalise both sides before comparing.
-  expect(
-    fs
-      .readFileSync(env.GIT_CONFIG_GLOBAL as string, 'utf8')
-      .split(path.sep)
-      .join('/'),
-  ).toContain(hookDir.split(path.sep).join('/'));
+  // The real ~/.gitconfig and ~/.promptlog were never touched. Read the
+  // value back through git itself (`--path`, so a relative value or a `~`
+  // would be expanded the same way git expands it) rather than grepping the
+  // raw config file: git escapes a backslash as `\\` in the ini format, so a
+  // Windows path's separators come back doubled in the literal text and a
+  // naive containment check never matches. `canonicalPath` on both sides
+  // absorbs the one difference that is left, a `realpath`-only one.
+  const configuredHooksPath = gitOk(env, repoDir, [
+    'config',
+    '--global',
+    '--path',
+    '--get',
+    'core.hooksPath',
+  ]).trim();
+  expect(canonicalPath(configuredHooksPath)).toBe(canonicalPath(hookDir));
   expect(
     fs.existsSync(path.join(repoDir, '.git', 'hooks', 'prepare-commit-msg')),
     'no per-repo install',
@@ -1397,9 +1425,7 @@ test('a checkout path with an apostrophe, a space and a non-ASCII char still yie
   const checkout = path.join(odd, 'promptlog');
   fs.mkdirSync(checkout, { recursive: true });
   for (const part of ['bin', path.join('skills', 'promptlog', 'scripts'), 'package.json']) {
-    const dest = path.join(checkout, part);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.cpSync(path.join(REPO, part), dest, { recursive: true, force: true });
+    copyEntry(path.join(REPO, part), path.join(checkout, part));
   }
 
   // The copy must be COMPLETE before `init` ever runs from it - a partial
@@ -1484,6 +1510,31 @@ test('doctor warns when a hook file’s baked promptlog.js path is missing', asy
   const info = JSON.parse(doc.stdout) as { hookWarnings: string[] };
   expect(info.hookWarnings.length, JSON.stringify(info.hookWarnings)).toBe(4);
   for (const w of info.hookWarnings) expect(w).toContain('baked promptlog.js is missing');
+});
+
+test('generated hook body: an empty PATH still fails open, warns once, exits 0', () => {
+  // Unit-level version of the scenario below, isolated from git and the
+  // rest of `init`: `hookBody()` (src/core/commands/hooks.ts) itself, run
+  // with nothing on PATH at all, must never propagate a non-zero status -
+  // that is what used to happen on Windows when the PATH-search fallback
+  // was a shell spawn of a command that does not exist (see the comment on
+  // `hookBody` for the "not recognized as an internal or external command"
+  // failure mode this replaced).
+  const dir = tmpDir('hookbody-');
+  const installed = installHooks(dir, { chainDir: null });
+  const file = installed.find((p) => p.endsWith('pre-commit')) as string;
+  const gone = path.join(dir, "no such dir 'here'", 'promptlog.js');
+  const body = fs.readFileSync(file, 'utf8').replace(/^const bakedPath = .*;\s*$/m, requireLiteral(gone));
+  fs.writeFileSync(file, body, 'utf8');
+  expect(spawnSync(process.execPath, ['--check', file]).status, 'still valid JS').toBe(0);
+
+  const r = spawnSync(process.execPath, [file, 'irrelevant-msgfile'], {
+    encoding: 'utf8',
+    env: { PATH: '', PATHEXT: '' },
+  });
+  expect(r.status, `stdout=${r.stdout} stderr=${r.stderr}`).toBe(0);
+  expect(r.stderr).toContain('promptlog: hook skipped');
+  expect(r.stderr).toContain('is missing and no promptlog on PATH');
 });
 
 test('a dispatcher whose baked promptlog.js no longer exists still lets the commit through', () => {
@@ -1658,7 +1709,7 @@ test('init --global with an existing global core.hooksPath chains it rather than
   // A per-repo init on top of a global install has nothing to add.
   const local = promptlog(env, repoDir, ['init']);
   expect(local.code).toBe(0);
-  expect(local.stdout).toMatch(
+  expect(local.stdout.split(path.sep).join('/')).toMatch(
     /hooks already active via .*\.promptlog\/hooks \(core\.hooksPath\); nothing to install/,
   );
   expect(fs.existsSync(path.join(repoDir, '.git', 'hooks', 'pre-commit')), 'still nothing per-repo').toBe(

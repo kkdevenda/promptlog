@@ -121,17 +121,27 @@ function collapseAgainst(target: string, home: string): string | null {
  * (a sandboxed test, a shell that sets both) must be honoured too, or a
  * path built against that `HOME` never collapses. Trailing and optional, so
  * every existing call site keeps working unchanged.
+ *
+ * Tried against every candidate home - the one passed in, `envHome`'s own
+ * read of `process.env`, and `os.homedir()` - because on Git for Windows
+ * these can disagree in form (`HOME` vs `USERPROFILE`, or a drive letter
+ * cased differently) even when they name the same directory; first match
+ * wins.
  */
 export function homeCollapse(p: string | null | undefined, home: string = envHome(process.env)): string {
   const s = p ?? '';
   if (!s) return s;
-  const direct = collapseAgainst(s, home);
-  if (direct !== null) return direct;
-  if (!home || !path.isAbsolute(s)) return s;
-  const realHome = realpathOr(home);
+  const homes = [...new Set([home, envHome(process.env), os.homedir()].filter(Boolean))];
+  for (const candidate of homes) {
+    const direct = collapseAgainst(s, candidate);
+    if (direct !== null) return direct;
+  }
+  if (!path.isAbsolute(s)) return s;
   const real = realpathOr(s);
-  const viaReal = collapseAgainst(real, realHome);
-  if (viaReal !== null) return viaReal;
+  for (const candidate of homes) {
+    const viaReal = collapseAgainst(real, realpathOr(candidate));
+    if (viaReal !== null) return viaReal;
+  }
   return s;
 }
 

@@ -50,11 +50,18 @@ export const HOOK_NAMES: readonly string[] = [
  * Fails open, always (DESIGN.md rule): when `bakedPath` is missing - a moved
  * or uninstalled promptlog - a bare `require()` would throw and could abort
  * the commit, so this checks `fs.existsSync` first and falls back to
- * `promptlog` on PATH; only when THAT is unavailable too does it give up,
- * and even then it warns once on stderr and exits 0. The one trade-off: in
- * that fallback-missing case any chained third-party hook (husky, lefthook,
- * a previous core.hooksPath) is skipped along with promptlog's own work,
- * since `dispatch` - which does the chaining - never got to run.
+ * locating `promptlog` on PATH itself: scanning each PATH entry with
+ * `fs.existsSync`, trying every `PATHEXT` suffix on win32 (a shim is usually
+ * `promptlog.cmd`, not a bare `promptlog`) or the bare name elsewhere - then
+ * spawning it WITHOUT a shell. A shell was tried first; on Windows, `cmd.exe`
+ * resolving a missing command prints its own "not recognized" error and
+ * exits 1 - a status indistinguishable from `promptlog` itself failing - and
+ * status 1 aborts the commit, the exact thing this fallback exists to
+ * prevent. Finding the binary ourselves means "not found" is known before
+ * spawning anything, so that case can warn once and exit 0 instead. The one
+ * trade-off: in the not-found case any chained third-party hook (husky,
+ * lefthook, a previous core.hooksPath) is skipped along with promptlog's own
+ * work, since `dispatch` - which does the chaining - never got to run.
  */
 function hookBody(hookName: string, chainDir: string | null): string {
   return [
@@ -68,11 +75,19 @@ function hookBody(hookName: string, chainDir: string | null): string {
     "  process.argv.splice(2, 0, 'dispatch', hookName, '--chain-dir', chainDir);",
     '  require(bakedPath);',
     '} else {',
-    "  const { spawnSync } = require('child_process');",
-    "  const args = ['dispatch', hookName, '--chain-dir', chainDir, ...process.argv.slice(2)];",
-    "  const r = spawnSync('promptlog', args, { stdio: 'inherit', shell: process.platform === 'win32' });",
-    '  if (!r.error) process.exit(r.status == null ? 0 : r.status);',
-    '  process.stderr.write(\'promptlog: hook skipped, \' + bakedPath + " is missing; run \\`promptlog init\\` again\\n");',
+    "  const path = require('path');",
+    "  const exts = process.platform === 'win32' ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';') : [''];",
+    "  const dirs = (process.env.PATH || '').split(path.delimiter);",
+    '  const candidates = [];',
+    "  for (const dir of dirs) for (const ext of exts) candidates.push(path.join(dir, 'promptlog' + ext));",
+    '  const found = candidates.find((c) => fs.existsSync(c));',
+    '  if (found) {',
+    "    const { spawnSync } = require('child_process');",
+    "    const args = ['dispatch', hookName, '--chain-dir', chainDir, ...process.argv.slice(2)];",
+    "    const r = spawnSync(found, args, { stdio: 'inherit' });",
+    '    process.exit(r.status == null ? 0 : r.status);',
+    '  }',
+    '  process.stderr.write(\'promptlog: hook skipped, \' + bakedPath + " is missing and no promptlog on PATH; run \\`promptlog init\\` again\\n");',
     '  process.exit(0);',
     '}',
     '',

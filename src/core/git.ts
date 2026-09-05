@@ -382,7 +382,11 @@ export function parseDiffHunks(text: string | null | undefined): Map<string, Dif
   const files = new Map<string, DiffHunk[]>();
   let file: string | null = null;
   let hunk: DiffHunk | null = null;
-  for (const line of String(text ?? '').split('\n')) {
+  // Split on either line ending: git's own diff format always uses `\n`,
+  // but this is defensive against a CRLF-converting filter putting a stray
+  // `\r` in front of it (an embedded `\r` in a content line is stripped by
+  // `normLine` downstream regardless).
+  for (const line of String(text ?? '').split(/\r\n|\n/)) {
     if (line.startsWith('diff --git ')) {
       file = null;
       hunk = null;

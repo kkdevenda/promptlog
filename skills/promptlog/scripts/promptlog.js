@@ -3209,7 +3209,7 @@ function parseDiffHunks(text) {
   const files3 = /* @__PURE__ */ new Map();
   let file = null;
   let hunk = null;
-  for (const line of String(text ?? "").split("\n")) {
+  for (const line of String(text ?? "").split(/\r\n|\n/)) {
     if (line.startsWith("diff --git ")) {
       file = null;
       hunk = null;
@@ -4564,13 +4564,17 @@ function collapseAgainst(target, home) {
 function homeCollapse(p, home = envHome(process.env)) {
   const s = p ?? "";
   if (!s) return s;
-  const direct = collapseAgainst(s, home);
-  if (direct !== null) return direct;
-  if (!home || !import_node_path22.default.isAbsolute(s)) return s;
-  const realHome = realpathOr(home);
+  const homes = [...new Set([home, envHome(process.env), import_node_os12.default.homedir()].filter(Boolean))];
+  for (const candidate of homes) {
+    const direct = collapseAgainst(s, candidate);
+    if (direct !== null) return direct;
+  }
+  if (!import_node_path22.default.isAbsolute(s)) return s;
   const real = realpathOr(s);
-  const viaReal = collapseAgainst(real, realHome);
-  if (viaReal !== null) return viaReal;
+  for (const candidate of homes) {
+    const viaReal = collapseAgainst(real, realpathOr(candidate));
+    if (viaReal !== null) return viaReal;
+  }
   return s;
 }
 function homeExpand(p, home = envHome(process.env)) {
@@ -5165,6 +5169,13 @@ function blobSha1(content) {
   const buf = Buffer.from(String(content ?? ""), "utf8");
   return import_node_crypto5.default.createHash("sha1").update(`blob ${buf.length}\0`).update(buf).digest("hex");
 }
+function blobMatches(content, staged) {
+  if (!staged) return false;
+  const raw = String(content ?? "");
+  if (blobSha1(raw) === staged) return true;
+  if (!raw.includes("\r")) return false;
+  return blobSha1(raw.replace(/\r\n/g, "\n")) === staged;
+}
 function gidOf(turn, agent, sessionId) {
   if (turn?.gid) return turn.gid;
   return `${agent}:${String(sessionId ?? "").slice(0, 8)}:${turn?.id}`;
@@ -5261,7 +5272,7 @@ function attribute({
     for (const e of fileEdits) {
       const rec2 = bump(e.turnId);
       if (e.kind === "write") {
-        if (e.after != null && blobOf() && blobSha1(e.after) === blobOf()) {
+        if (e.after != null && blobMatches(e.after, blobOf())) {
           for (let i = 0; i < hunkCount; i += 1) rec2.matched.add(i);
           rec2.kinds.add("write");
           continue;
@@ -6373,11 +6384,19 @@ function hookBody(hookName, chainDir) {
     "  process.argv.splice(2, 0, 'dispatch', hookName, '--chain-dir', chainDir);",
     "  require(bakedPath);",
     "} else {",
-    "  const { spawnSync } = require('child_process');",
-    "  const args = ['dispatch', hookName, '--chain-dir', chainDir, ...process.argv.slice(2)];",
-    "  const r = spawnSync('promptlog', args, { stdio: 'inherit', shell: process.platform === 'win32' });",
-    "  if (!r.error) process.exit(r.status == null ? 0 : r.status);",
-    "  process.stderr.write('promptlog: hook skipped, ' + bakedPath + \" is missing; run \\`promptlog init\\` again\\n\");",
+    "  const path = require('path');",
+    "  const exts = process.platform === 'win32' ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';') : [''];",
+    "  const dirs = (process.env.PATH || '').split(path.delimiter);",
+    "  const candidates = [];",
+    "  for (const dir of dirs) for (const ext of exts) candidates.push(path.join(dir, 'promptlog' + ext));",
+    "  const found = candidates.find((c) => fs.existsSync(c));",
+    "  if (found) {",
+    "    const { spawnSync } = require('child_process');",
+    "    const args = ['dispatch', hookName, '--chain-dir', chainDir, ...process.argv.slice(2)];",
+    "    const r = spawnSync(found, args, { stdio: 'inherit' });",
+    "    process.exit(r.status == null ? 0 : r.status);",
+    "  }",
+    "  process.stderr.write('promptlog: hook skipped, ' + bakedPath + \" is missing and no promptlog on PATH; run \\`promptlog init\\` again\\n\");",
     "  process.exit(0);",
     "}",
     ""

@@ -128,6 +128,28 @@ export function blobSha1(content: string | null | undefined): string {
   return crypto.createHash('sha1').update(`blob ${buf.length}\0`).update(buf).digest('hex');
 }
 
+/**
+ * Does `content`'s blob hash match `staged`, either as-is or after CRLF -> LF
+ * normalisation?
+ *
+ * A Write's `after` is the agent's own in-memory string, almost always LF
+ * only; what actually lands in the index is whatever git staged, and on Git
+ * for Windows checkouts that default `core.autocrlf=true`, `git add`
+ * normalises a working-tree file's CRLF to LF before it is hashed into the
+ * object store. So a Write whose content the OS then round-trips through a
+ * CRLF-writing editor/tool - or a transcript recorded on a CRLF checkout -
+ * can carry CRLF that the staged blob no longer has. Hashing both forms
+ * catches that without weakening the match: a real mismatch (something else
+ * edited the file afterwards) still fails both.
+ */
+function blobMatches(content: string | null | undefined, staged: string | null): boolean {
+  if (!staged) return false;
+  const raw = String(content ?? '');
+  if (blobSha1(raw) === staged) return true;
+  if (!raw.includes('\r')) return false;
+  return blobSha1(raw.replace(/\r\n/g, '\n')) === staged;
+}
+
 // ------------------------------------------------------------------ helpers
 
 function gidOf(
@@ -296,7 +318,7 @@ export function attribute({
         // file: every hunk in it belongs to that turn, no line matching
         // needed. Otherwise fall back to containment (something edited it
         // afterwards).
-        if (e.after != null && blobOf() && blobSha1(e.after) === blobOf()) {
+        if (e.after != null && blobMatches(e.after, blobOf())) {
           for (let i = 0; i < hunkCount; i += 1) rec.matched.add(i);
           rec.kinds.add('write');
           continue;
