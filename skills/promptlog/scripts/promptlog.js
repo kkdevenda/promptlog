@@ -3045,6 +3045,7 @@ function git(args, options = {}) {
   const { cwd = process.cwd(), input, env: env2 } = options;
   let timeout = options.timeout ?? 2e3;
   const left = remainingBudget();
+  const clamped = left != null && left < timeout;
   if (left != null) timeout = Math.max(MIN_CHILD_TIMEOUT, Math.min(timeout, left));
   const spawnOptions = {
     cwd,
@@ -3058,6 +3059,12 @@ function git(args, options = {}) {
   const stdout = res.stdout == null ? "" : String(res.stdout);
   const stderr = res.stderr == null ? "" : String(res.stderr);
   const code = res.error ? 1 : res.status ?? 1;
+  if (res.error && clamped) {
+    process.stderr.write(
+      `promptlog: git ${args[0]} did not finish within ${timeout}ms (hook budget nearly spent) - treated as no result, not an error
+`
+    );
+  }
   return { code, stdout, stderr, ok: code === 0, error: res.error ?? null };
 }
 function repoRoot(cwd) {
@@ -6601,6 +6608,9 @@ function closeBudget(root) {
   } catch {
   }
 }
+function noteBudgetSkip(ctx, what) {
+  err(ctx, `promptlog: hook budget exhausted, skipped ${what}`);
+}
 function readStdinSync2() {
   try {
     return import_node_fs16.default.readFileSync(0, "utf8");
@@ -6655,7 +6665,11 @@ function collectAndStage(ctx, root, config, overBudget, { amend = false } = {}) 
     session: null,
     since
   });
-  if (!chosen.length || overBudget()) return [];
+  if (!chosen.length) return [];
+  if (overBudget()) {
+    noteBudgetSkip(ctx, "record writing for this commit (attribution ran out of time)");
+    return [];
+  }
   const gids = writeRecords(root, chosen, { config });
   if (!gids.length) return [];
   writeEvidence(root, linked);
@@ -6668,7 +6682,8 @@ function collectAndStage(ctx, root, config, overBudget, { amend = false } = {}) 
     );
   }
   const attrsBefore = readGitattributes(root);
-  if (!overBudget()) regenerate(root, config);
+  if (overBudget()) noteBudgetSkip(ctx, "README/index regenerate");
+  else regenerate(root, config);
   git(["add", "--", STORE_DIR], { cwd: root });
   if (readGitattributes(root) !== attrsBefore) {
     git(["add", "--", ".gitattributes"], { cwd: root });
@@ -6686,7 +6701,8 @@ function hookPreCommit(_rest, ctx, root, config, overBudget) {
   const gids = union(fresh, orphanGids(root));
   if (!gids.length) return 0;
   if (!fresh.length) {
-    if (!overBudget()) regenerate(root, config);
+    if (overBudget()) noteBudgetSkip(ctx, "README/index regenerate for carried-over records");
+    else regenerate(root, config);
     git(["add", "--", STORE_DIR], { cwd: root });
   }
   try {
@@ -6762,10 +6778,16 @@ function hookPostCommit(_rest, ctx, root, config, overBudget) {
     return 0;
   }
   addCommitToGids(root, gids, sha, { evidence: takeEvidence(root) });
-  if (!overBudget()) regenerate(root, config);
+  if (overBudget()) noteBudgetSkip(ctx, "README/index regenerate");
+  else regenerate(root, config);
   if (config.notes) notesAdd(root, gids, { sha });
   const wantAmend = configGet(root, "promptlog.amend") === "true";
-  if (wantAmend && !overBudget()) {
+  if (wantAmend && overBudget()) {
+    noteBudgetSkip(
+      ctx,
+      `promptlog.amend for ${sha.slice(0, 8)} (the commit keeps its evidence, just unamended)`
+    );
+  } else if (wantAmend) {
     const dirty = git(["status", "--porcelain", "--", STORE_DIR], { cwd: root });
     if (dirty.ok && dirty.stdout.trim()) {
       git(["add", "--", STORE_DIR], { cwd: root });
@@ -6777,7 +6799,8 @@ function hookPostCommit(_rest, ctx, root, config, overBudget) {
         const newSha = headSha(root);
         if (newSha && newSha !== sha) {
           remapCommits(root, /* @__PURE__ */ new Map([[sha, newSha]]));
-          if (!overBudget()) regenerate(root, config);
+          if (overBudget()) noteBudgetSkip(ctx, "README/index regenerate after amend");
+          else regenerate(root, config);
           git(["add", "--", STORE_DIR], { cwd: root });
         }
       }
@@ -6786,14 +6809,15 @@ function hookPostCommit(_rest, ctx, root, config, overBudget) {
   closeBudget(root);
   return 0;
 }
-function hookPostRewrite(_rest, _ctx, root, config, overBudget) {
+function hookPostRewrite(_rest, ctx, root, config, overBudget) {
   const mapping = parseRewriteStdin(readStdinSync2());
   if (!mapping.size) {
     closeBudget(root);
     return 0;
   }
   remapCommits(root, mapping);
-  if (!overBudget()) regenerate(root, config);
+  if (overBudget()) noteBudgetSkip(ctx, "README/index regenerate after rewrite");
+  else regenerate(root, config);
   closeBudget(root);
   return 0;
 }

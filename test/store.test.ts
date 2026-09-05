@@ -549,16 +549,29 @@ test('withLock serialises mutations and breaks a stale lock', () => {
 test('an out-of-repo absolute file path is home-collapsed and redacted', () => {
   const root = tmpRoot();
   const secretish = path.join(os.homedir(), 'scratch', `${AWS_KEY}.json`);
+  // A bare POSIX literal like `/etc/hosts` is not a real absolute path on
+  // win32: node resolves it against the CURRENT drive, and when that drive
+  // differs from the repo's (routine on GitHub's Windows runners, where the
+  // workspace lives on `D:\` and `C:\Windows` does not) `path.relative`
+  // cannot express it relative to the repo at all and hands back the
+  // absolute form instead - `C:\etc\hosts`, not the literal we passed in. So
+  // on win32 this uses a path that is genuinely absolute in its own right,
+  // and checks for its forward-slash form rather than the untouched string.
+  const outOfRepo =
+    process.platform === 'win32'
+      ? path.win32.resolve('C:\\Windows\\System32\\drivers\\etc\\hosts')
+      : '/etc/hosts';
   const { doc } = upsert(root, [
     turn({
-      files: new Set(['lib/store.js', secretish, '/etc/hosts']),
+      files: new Set(['lib/store.js', secretish, outOfRepo]),
     }),
   ]);
   const rec = doc.turns[GID];
   if (!rec) throw new Error('expected a record');
   // Inside the repo: repo-relative. Outside: `~`-collapsed, never the real home.
   expect(rec.files.includes('lib/store.js')).toBeTruthy();
-  expect(rec.files.includes('/etc/hosts')).toBeTruthy();
+  const expectedOutOfRepo = outOfRepo.split(path.sep).join('/');
+  expect(rec.files.includes(expectedOutOfRepo)).toBeTruthy();
   expect(rec.files.some((f) => f.startsWith(os.homedir()))).toBeFalsy(); // home leaked
   const collapsed = rec.files.find((f) => f.startsWith('~/'));
   expect(collapsed).toBeTruthy(); // an out-of-repo path is collapsed

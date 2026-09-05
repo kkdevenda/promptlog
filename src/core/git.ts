@@ -66,11 +66,26 @@ export interface GitResult {
   error: Error | null;
 }
 
-/** Run git with `args`. Never throws. */
+/**
+ * Run git with `args`. Never throws.
+ *
+ * Under a live hook budget (`setDeadline`), the requested timeout is clamped
+ * to what is left - otherwise three hooks x their own timeout could add
+ * seconds to a commit regardless of the budget. That clamp can starve a
+ * git spawn that would have succeeded given its usual timeout: on a slow
+ * runner (Windows CI is the known case) the child is killed mid-work and
+ * this returns `ok: false` exactly as it would for an ordinary git failure -
+ * indistinguishable to every caller, so `stagedHunks`/`stagedBlobHash`
+ * silently see "nothing" instead of "ran out of time". That is the one case
+ * where a failure here is worth a diagnostic: fail open still (the caller's
+ * existing empty-result handling is unchanged), but say so on stderr so it
+ * is not mistaken for "no evidence".
+ */
 export function git(args: string[], options: GitOptions = {}): GitResult {
   const { cwd = process.cwd(), input, env } = options;
   let timeout = options.timeout ?? 2000;
   const left = remainingBudget();
+  const clamped = left != null && left < timeout;
   if (left != null) timeout = Math.max(MIN_CHILD_TIMEOUT, Math.min(timeout, left));
   const spawnOptions: SpawnSyncOptions = {
     cwd,
@@ -84,6 +99,11 @@ export function git(args: string[], options: GitOptions = {}): GitResult {
   const stdout = res.stdout == null ? '' : String(res.stdout);
   const stderr = res.stderr == null ? '' : String(res.stderr);
   const code = res.error ? 1 : (res.status ?? 1);
+  if (res.error && clamped) {
+    process.stderr.write(
+      `promptlog: git ${args[0]} did not finish within ${timeout}ms (hook budget nearly spent) - treated as no result, not an error\n`,
+    );
+  }
   return { code, stdout, stderr, ok: code === 0, error: res.error ?? null };
 }
 

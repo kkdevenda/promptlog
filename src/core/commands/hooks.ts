@@ -389,6 +389,17 @@ function closeBudget(root: string): void {
   }
 }
 
+/**
+ * The one line every budget-caused skip writes, always starting `promptlog:`
+ * so it is `grep`-able and so the tests (which read it back out of the
+ * commit's captured stderr) can tell "nothing to do" apart from "ran out of
+ * time". Never an error - the commit still succeeds - but silent
+ * degradation is not diagnosable, so this makes it visible instead.
+ */
+function noteBudgetSkip(ctx: Ctx, what: string): void {
+  err(ctx, `promptlog: hook budget exhausted, skipped ${what}`);
+}
+
 function readStdinSync(): string {
   try {
     return fs.readFileSync(0, 'utf8');
@@ -496,7 +507,11 @@ function collectAndStage(
     session: null,
     since,
   });
-  if (!chosen.length || overBudget()) return [];
+  if (!chosen.length) return [];
+  if (overBudget()) {
+    noteBudgetSkip(ctx, 'record writing for this commit (attribution ran out of time)');
+    return [];
+  }
   const gids = writeRecords(root, chosen, { config });
   if (!gids.length) return [];
   writeEvidence(root, linked);
@@ -515,7 +530,8 @@ function collectAndStage(
   // run changed it (init's merge-driver lines), never blindly: a commit
   // must not smuggle in the user's own unstaged edits to it.
   const attrsBefore = readGitattributes(root);
-  if (!overBudget()) regenerate(root, config);
+  if (overBudget()) noteBudgetSkip(ctx, 'README/index regenerate');
+  else regenerate(root, config);
   git.git(['add', '--', STORE_DIR], { cwd: root });
   if (readGitattributes(root) !== attrsBefore) {
     git.git(['add', '--', '.gitattributes'], { cwd: root });
@@ -558,7 +574,8 @@ function hookPreCommit(
   if (!fresh.length) {
     // Nothing new, but leftovers to carry: make sure the derived files
     // match.
-    if (!overBudget()) regenerate(root, config);
+    if (overBudget()) noteBudgetSkip(ctx, 'README/index regenerate for carried-over records');
+    else regenerate(root, config);
     git.git(['add', '--', STORE_DIR], { cwd: root });
   }
   try {
@@ -677,12 +694,18 @@ function hookPostCommit(
   }
 
   addCommitToGids(root, gids, sha, { evidence: takeEvidence(root) });
-  if (!overBudget()) regenerate(root, config);
+  if (overBudget()) noteBudgetSkip(ctx, 'README/index regenerate');
+  else regenerate(root, config);
 
   if (config.notes) git.notesAdd(root, gids, { sha });
 
   const wantAmend = git.configGet(root, 'promptlog.amend') === 'true';
-  if (wantAmend && !overBudget()) {
+  if (wantAmend && overBudget()) {
+    noteBudgetSkip(
+      ctx,
+      `promptlog.amend for ${sha.slice(0, 8)} (the commit keeps its evidence, just unamended)`,
+    );
+  } else if (wantAmend) {
     const dirty = git.git(['status', '--porcelain', '--', STORE_DIR], { cwd: root });
     if (dirty.ok && dirty.stdout.trim()) {
       git.git(['add', '--', STORE_DIR], { cwd: root });
@@ -698,7 +721,8 @@ function hookPostCommit(
         const newSha = git.headSha(root);
         if (newSha && newSha !== sha) {
           remapCommits(root, new Map([[sha, newSha]]));
-          if (!overBudget()) regenerate(root, config);
+          if (overBudget()) noteBudgetSkip(ctx, 'README/index regenerate after amend');
+          else regenerate(root, config);
           git.git(['add', '--', STORE_DIR], { cwd: root });
         }
       }
@@ -710,7 +734,7 @@ function hookPostCommit(
 
 function hookPostRewrite(
   _rest: string[],
-  _ctx: Ctx,
+  ctx: Ctx,
   root: string,
   config: StoreConfig,
   overBudget: () => boolean,
@@ -721,7 +745,8 @@ function hookPostRewrite(
     return 0;
   }
   remapCommits(root, mapping);
-  if (!overBudget()) regenerate(root, config);
+  if (overBudget()) noteBudgetSkip(ctx, 'README/index regenerate after rewrite');
+  else regenerate(root, config);
   closeBudget(root);
   return 0;
 }
