@@ -1,6 +1,6 @@
 <div align="center">
 
-<!-- banner pending design approval: <img src="assets/banner.png" alt="promptlog" width="820"> -->
+<img src="assets/icon.svg" alt="promptlog" width="128">
 
 # promptlog
 
