@@ -9,6 +9,7 @@ import * as renderReadmeMod from '../src/core/renderReadme';
 import * as sessionRecords from '../src/core/sessionRecords';
 import * as store from '../src/core/store';
 import * as storeIndex from '../src/core/storeIndex';
+import { tmpDir } from './helpers';
 
 // Assembled at runtime so no key-shaped literal sits in the repo (GitHub push protection).
 const AWS_KEY = `AKIA${'IOSFODNN7EXAMPLE'}`;
@@ -16,7 +17,7 @@ const AWS_KEY = `AKIA${'IOSFODNN7EXAMPLE'}`;
 const S = 1000000;
 
 function tmpRoot(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptlog-store-'));
+  const dir = tmpDir('promptlog-store-');
   fs.mkdirSync(path.join(dir, '.promptlog', 'sessions'), { recursive: true });
   return dir;
 }
@@ -143,8 +144,10 @@ test('a session document matches the documented schema and hashes the ORIGINAL t
   expect(rec.models).toEqual(['claude-fable-5-1']);
   expect(rec.ts).toMatch(/Z$/);
 
-  // origin.path is home-collapsed, hashes are of the unredacted originals.
+  // origin.path is home-collapsed to a portable `~/` form: forward slashes on
+  // every platform (DESIGN.md "Repo store"), never the host separator.
   expect(rec.origin.path.startsWith('~/.claude/')).toBeTruthy();
+  expect(rec.origin.path).not.toMatch(/\\/);
   const sha = (s: string) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
   expect(rec.origin.promptHash).toBe(sha('add a repo store'));
   expect(rec.origin.responseHash).toBe(sha('done.'));
@@ -249,11 +252,16 @@ test('writeAtomic leaves no partial file and no stray tmp files', () => {
   expect(fs.readFileSync(target, 'utf8')).toBe('{"a":2}\n');
   const leftovers = fs.readdirSync(path.dirname(target)).filter((n) => n.includes('.tmp'));
   expect(leftovers).toEqual([]); // tmp file renamed away
-  // The rename is atomic: at no point is a reader able to see a truncated file.
-  // Emulate a crash between writes by asserting the previous content survives a
-  // failed write to an unwritable directory.
-  expect(() => store.writeAtomic(path.join('/proc/definitely-not-writable', 'x.json'), 'x')).toThrow();
-  expect(fs.readFileSync(target, 'utf8')).toBe('{"a":2}\n');
+  // The rename is atomic: at no point is a reader able to see a truncated
+  // file. Emulate a crash between writes by forcing the write itself to
+  // fail: a plain file in the way of the target directory makes `mkdirSync`
+  // reject with ENOTDIR/EEXIST on every platform (a POSIX-only unwritable
+  // path like `/proc/...` is not such a thing on Windows, where that string
+  // is just an ordinary, creatable path on the current drive).
+  const blocker = path.join(root, 'blocker');
+  fs.writeFileSync(blocker, 'not a directory');
+  expect(() => store.writeAtomic(path.join(blocker, 'x.json'), 'x')).toThrow();
+  expect(fs.readFileSync(target, 'utf8')).toBe('{"a":2}\n'); // the earlier write survives
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -415,9 +423,9 @@ test('ensureGitattributes migrates away a pre-v0.3 merge=union line', () => {
 
 test('homeCollapse / homeExpand round-trip', () => {
   const p = path.join(os.homedir(), '.claude', 'projects', 'x.jsonl');
-  expect(store.homeCollapse(p)).toBe(
-    '~/.claude/projects/x.jsonl'.replace(/\//g, path.sep === '\\' ? '\\' : '/'),
-  );
+  // Portable text: always `~/` with forward slashes, never the host
+  // separator (DESIGN.md "Repo store").
+  expect(store.homeCollapse(p)).toBe('~/.claude/projects/x.jsonl');
   expect(store.homeExpand(store.homeCollapse(p))).toBe(p);
 });
 
@@ -563,14 +571,14 @@ test('an out-of-repo absolute file path is home-collapsed and redacted', () => {
 
 test('homeCollapse handles a realpath-different home (macOS /private/var)', () => {
   const home = os.homedir();
-  expect(store.homeCollapse(path.join(home, 'x'))).toBe(path.join('~', 'x'));
+  expect(store.homeCollapse(path.join(home, 'x'))).toBe('~/x');
   expect(store.homeCollapse('')).toBe('');
   expect(store.homeCollapse('relative/path.js')).toBe('relative/path.js');
   // A path that only matches after resolving symlinks is still collapsed: on
   // macOS `/var/...` and `/private/var/...` are the same directory.
   const real = fs.realpathSync(home);
   if (real !== home) {
-    expect(store.homeCollapse(path.join(real, 'x'))).toBe(path.join('~', 'x'));
+    expect(store.homeCollapse(path.join(real, 'x'))).toBe('~/x');
   }
 });
 

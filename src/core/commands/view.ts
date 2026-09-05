@@ -10,7 +10,6 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { byId } from '../../agents';
 import * as git from '../git';
@@ -327,11 +326,11 @@ export async function sessions(args: CommandArgs, ctx: Ctx): Promise<number> {
 /** Does a hook dispatcher file for "prepare-commit-msg" exist and mention
  * "promptlog"? Checked in `.git/hooks/` and, if `core.hooksPath` is set,
  * there too. */
-function hookInstalled(repoRootPath: string): boolean {
+function hookInstalled(repoRootPath: string, home: string): boolean {
   const candidates: string[] = [];
   const hooksPath = git.configGet(repoRootPath, 'core.hooksPath');
   if (hooksPath) {
-    const dir = hooksPath.startsWith('~') ? path.join(os.homedir(), hooksPath.slice(1)) : hooksPath;
+    const dir = hooksPath.startsWith('~') ? path.join(home, hooksPath.slice(1)) : hooksPath;
     candidates.push(
       path.join(path.isAbsolute(dir) ? dir : path.join(repoRootPath, dir), 'prepare-commit-msg'),
     );
@@ -369,7 +368,7 @@ export async function env(args: CommandArgs, ctx: Ctx): Promise<number> {
   });
   const root = git.repoRoot(ctx.cwd);
   const enabled = root ? git.configGet(root, 'promptlog.enabled') : null;
-  const hooks = root ? hookInstalled(root) : false;
+  const hooks = root ? hookInstalled(root, homeOf(ctx)) : false;
 
   // `ui` mirrors what `graph`'s auto-format picks from: parse the resolved
   // transcript (best-effort - env should never fail just because ui() needs

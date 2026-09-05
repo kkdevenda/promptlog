@@ -11,6 +11,7 @@ import * as attribution from '../src/core/attribution';
 import * as initCmds from '../src/core/commands/init';
 import * as repoCmds from '../src/core/commands/repo';
 import * as git from '../src/core/git';
+import { tmpDir } from './helpers';
 
 const S = 1000000; // one second in micros
 
@@ -352,7 +353,7 @@ test('candidateSessions narrows to the named agent, symmetrically', () => {
   // `--agent claude` used to narrow to claude (the registry's first adapter)
   // while `--agent codex` fell back to `['codex', 'claude']` and could answer
   // with a Claude session. Both must narrow to the agent that was named.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'promptlog-narrow-'));
+  const home = tmpDir('promptlog-narrow-');
   const repoDir = path.join(home, 'repo');
   fs.mkdirSync(path.join(repoDir, '.git'), { recursive: true });
   const sid = 'c86e0429-3e3b-4f17-8262-35a6f0c85599';
@@ -371,10 +372,13 @@ test('candidateSessions narrows to the named agent, symmetrically', () => {
     })}\n`,
   );
 
-  const prevHome = process.env.HOME;
-  process.env.HOME = home;
   try {
-    const env = { CLAUDE_CODE_SESSION_ID: sid };
+    // HOME is injected through the `env` object `candidateSessions` is given
+    // (which threads it to every locate/findSession call as `home` via
+    // `envHome`), not by mutating the process's real environment:
+    // `os.homedir()` on win32 reads USERPROFILE and ignores a reassigned
+    // `process.env.HOME`.
+    const env = { CLAUDE_CODE_SESSION_ID: sid, HOME: home };
     const call = (agent: string) =>
       repoCmds.candidateSessions({ cwd: repoDir, env, agent }).map((c: { agent: string }) => c.agent);
 
@@ -385,7 +389,6 @@ test('candidateSessions narrows to the named agent, symmetrically', () => {
     expect(repoCmds.narrowedAgentIds('claude')).toEqual(['claude']);
     expect(repoCmds.narrowedAgentIds('auto').length >= 2, 'auto considers every adapter').toBeTruthy();
   } finally {
-    process.env.HOME = prevHome;
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -439,7 +442,7 @@ test('lastParagraphIsTrailers', () => {
 });
 
 test('isPartialCommit: index.lock is the real index, a temp index is not', () => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'promptlog-idx-')));
+  const dir = tmpDir('promptlog-idx-');
   const env = {
     ...process.env,
     HOME: dir,

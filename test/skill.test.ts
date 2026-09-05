@@ -88,12 +88,24 @@ describe('CLI', () => {
 
   test('skill install --path writes a shim', () => {
     const home = makeFakeHome();
-    const r = run(['skill', 'install', '--path'], { HOME: home });
+    const env: NodeJS.ProcessEnv = { HOME: home };
+    // On win32, `shimDir()` writes `promptlog.cmd` under
+    // `%LOCALAPPDATA%\promptlog\bin` rather than `~/.local/bin/promptlog` -
+    // `cmd.exe` never looks in the latter, and a plain shell script there
+    // would never be found either.
+    let shimPath: string;
+    if (process.platform === 'win32') {
+      const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+      env.LOCALAPPDATA = localAppData;
+      shimPath = path.join(localAppData, 'promptlog', 'bin', 'promptlog.cmd');
+    } else {
+      shimPath = path.join(home, '.local', 'bin', 'promptlog');
+    }
+    const r = run(['skill', 'install', '--path'], env);
     expect(r.status, r.stderr).toBe(0);
-    const shimPath = path.join(home, '.local', 'bin', 'promptlog');
     expect(fs.existsSync(shimPath)).toBeTruthy();
     const content = fs.readFileSync(shimPath, 'utf-8');
-    expect(content).toMatch(/exec node/);
+    expect(content).toMatch(process.platform === 'win32' ? /node/ : /exec node/);
     fs.rmSync(home, { recursive: true, force: true });
   });
 

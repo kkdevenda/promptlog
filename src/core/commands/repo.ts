@@ -19,6 +19,7 @@ import path from 'node:path';
 
 import { agents, byId } from '../../agents';
 import { attribute, type LinkedEntry } from '../attribution';
+import { canonicalPath, isUnderRepo } from '../fsutil';
 import * as git from '../git';
 import { str } from '../json';
 import type { Session, Turn } from '../model';
@@ -33,6 +34,7 @@ import {
   Colors,
   type CommandArgs,
   type Ctx,
+  envHome,
   err,
   humanizeDuration,
   localYMDHM,
@@ -139,13 +141,17 @@ export function candidateSessions({
     results.push({ agent: a, path: p, sessionId: sessionIdOf(parsed, p), session: parsed, how: how ?? null });
   };
   const ids = narrowedAgentIds(agent);
+  // Every home lookup goes through the env we were given, not os.homedir():
+  // a sandboxed HOME (tests, `--global` e2e runs) must be honoured even on
+  // win32, where os.homedir() reads USERPROFILE instead.
+  const home = envHome(env);
 
   // Explicit session, or the env vars: the identified session comes first.
   const wantedEnv =
     session || env.CLAUDE_CODE_SESSION_ID || env.CODEX_THREAD_ID || env.CODEX_SESSION_ID || null;
   if (wantedEnv) {
     try {
-      const r = resolveSession({ agent, session, cwd, env });
+      const r = resolveSession({ agent, session, cwd, env, home });
       if (r.path) push(r.agent ?? agent, r.path, r.how);
     } catch {
       /* fall through */
@@ -162,7 +168,7 @@ export function candidateSessions({
         const adapter = byId(a);
         if (!adapter) continue;
         try {
-          const p = adapter.findSession(wantedEnv, { cwd });
+          const p = adapter.findSession(wantedEnv, { cwd, home });
           if (p) push(a, p, how);
         } catch {
           /* keep trying */
@@ -174,7 +180,7 @@ export function candidateSessions({
   }
 
   try {
-    for (const c of listCandidateSessions({ cwd, since: sinceMs })) {
+    for (const c of listCandidateSessions({ cwd, since: sinceMs, home })) {
       if (!ids.includes(c.agent)) continue;
       push(c.agent, c.path, 'newest-for-cwd');
     }
@@ -187,20 +193,12 @@ export function candidateSessions({
     const adapter = byId(a);
     if (!adapter) continue;
     try {
-      for (const loc of adapter.locate({ cwd })) push(a, loc.path, 'newest-for-cwd');
+      for (const loc of adapter.locate({ cwd, home })) push(a, loc.path, 'newest-for-cwd');
     } catch {
       /* keep trying */
     }
   }
   return results;
-}
-
-function realpath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
 }
 
 /**
@@ -215,12 +213,10 @@ function realpath(p: string): string {
 export function touchesRepo(turn: { files: Set<string> }, root: string): boolean {
   const files = [...turn.files];
   if (!files.length) return true;
-  const realRoot = realpath(root);
   for (const f of files) {
     if (!f) continue;
     if (!path.isAbsolute(f)) return true; // already repo-relative
-    const relPath = path.relative(realRoot, realpath(f));
-    if (relPath === '' || (relPath && !relPath.startsWith('..') && !path.isAbsolute(relPath))) return true;
+    if (isUnderRepo(f, root)) return true;
   }
   return false;
 }
@@ -665,7 +661,13 @@ export function isPartialCommit(ctx: Pick<Ctx, 'env'>, root: string): boolean {
   const idx = ctx.env.GIT_INDEX_FILE ?? '';
   if (!idx) return false;
   const gitDir = gitDirOf(root);
-  const here = path.resolve(root, idx);
-  const real = [path.join(gitDir, 'index'), path.join(gitDir, 'index.lock')].map((p) => path.resolve(p));
-  return !real.includes(here);
+  // `gitDir` comes from `git rev-parse` (forward slashes on Git for Windows,
+  // possibly a short 8.3 alias under a temp HOME), `idx` from the
+  // environment: canonicalize both before comparing, or the same directory
+  // fails to match itself.
+  const here = canonicalPath(path.resolve(root, idx));
+  const real = new Set(
+    [path.join(gitDir, 'index'), path.join(gitDir, 'index.lock')].map((p) => canonicalPath(p)),
+  );
+  return !real.has(here);
 }

@@ -9,6 +9,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+/**
+ * `parseShellWrites` parses POSIX shell command TEXT, not a real filesystem
+ * path - the command string an agent ran, which uses `/` regardless of the
+ * host platform (an agent's Bash tool runs through a POSIX-shaped shell even
+ * on Windows, via Git for Windows' own `sh`). Every path operation on that
+ * text - `cd`/`pushd` tracking, redirect targets, `dirname`/`join`/`resolve`/
+ * `isAbsolute` - therefore uses `path.posix`, so the result is always
+ * forward-slash text and never depends on the host's own separator. Real
+ * filesystem paths (an already-resolved tool argument, `locateFile`'s cwd)
+ * are a separate concern, handled below with the real `path` module.
+ */
+const posix = path.posix;
+
 // ------------------------------------------------------- tier B: shell writes
 
 const SHELL_SPLIT = /(?:\|\||&&|[;\n|])/;
@@ -62,18 +75,25 @@ function plausiblePath(p: string | undefined): string | null {
 const UNKNOWN_DIR = Symbol('unknown cwd');
 type Dir = string | null | typeof UNKNOWN_DIR;
 
+/** `os.homedir()` as forward-slash text: the tracked `dir` is always POSIX
+ * text (see the module-level comment above `posix`), even when the real
+ * home directory is a Windows path. */
+function homeForwardSlash(): string {
+  return os.homedir().replace(/\\/g, '/');
+}
+
 /** Where a `cd`/`pushd` argument points, relative to `dir`. */
 function resolveCd(dir: Dir, rawArg: string | undefined): Dir {
-  if (rawArg == null) return os.homedir(); // bare `cd` goes home
+  if (rawArg == null) return homeForwardSlash(); // bare `cd` goes home
   const arg = unquote(rawArg);
   if (!arg || arg === '-') return UNKNOWN_DIR; // `cd -`: the previous dir
   if (/\$|`/.test(arg)) return UNKNOWN_DIR; // unexpanded variable
-  if (arg === '~') return os.homedir();
-  if (arg.startsWith('~/')) return path.join(os.homedir(), arg.slice(2));
-  if (path.isAbsolute(arg)) return arg;
+  if (arg === '~') return homeForwardSlash();
+  if (arg.startsWith('~/')) return posix.join(homeForwardSlash(), arg.slice(2));
+  if (posix.isAbsolute(arg)) return arg;
   if (dir === UNKNOWN_DIR) return UNKNOWN_DIR;
   // Still relative: keep it relative to wherever the caller resolves from.
-  return dir == null ? arg : path.join(dir, arg);
+  return dir == null ? arg : posix.join(dir, arg);
 }
 
 /**
@@ -124,12 +144,12 @@ export function parseShellWrites(command: string | null | undefined): string[] {
   const add = (p: string | undefined) => {
     const v = plausiblePath(p);
     if (!v) return;
-    if (path.isAbsolute(v)) {
+    if (posix.isAbsolute(v)) {
       if (!found.includes(v)) found.push(v);
       return;
     }
     if (dir === UNKNOWN_DIR) return; // we cannot say where this landed
-    const full = dir == null ? v : path.join(dir, v);
+    const full = dir == null ? v : posix.join(dir, v);
     if (!found.includes(full)) found.push(full);
   };
 
@@ -164,7 +184,7 @@ export function parseShellWrites(command: string | null | undefined): string[] {
     }
     if (i >= w.length) continue;
     const argv = w.slice(i);
-    const cmd0 = path.basename(unquote(argv[0]));
+    const cmd0 = posix.basename(unquote(argv[0]));
     const rest = argv.slice(1);
     const positional = rest.filter((a) => !a.startsWith('-'));
 
@@ -255,13 +275,22 @@ export interface LocatedFile {
   rel: string | null;
 }
 
-/** Absolute path (resolved against the session's cwd) plus `rel`. */
+/**
+ * Absolute path (resolved against the session's cwd) plus `rel`.
+ *
+ * `file` and `cwd` are POSIX text like everything else in this module (a
+ * transcript's recorded paths are forward-slash, whatever the host), so the
+ * combination uses `path.posix` and the result stays forward-slash. The one
+ * place a platform path enters is `relativeTo`'s `realpath` fallback below,
+ * which asks the real filesystem whether `abs` exists under the real repo
+ * root - and folds its answer straight back into forward-slash `rel`.
+ */
 export function locateFile(
   file: string | null | undefined,
   { cwd, root }: { cwd?: string | null; root?: string | null },
 ): LocatedFile | null {
   let abs = String(file ?? '');
   if (!abs) return null;
-  if (!path.isAbsolute(abs)) abs = path.resolve(cwd || process.cwd(), abs);
+  if (!path.posix.isAbsolute(abs)) abs = path.posix.resolve(cwd || process.cwd(), abs);
   return { file: abs, rel: relativeTo(root, abs) };
 }

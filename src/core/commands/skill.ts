@@ -41,9 +41,19 @@ export function homeOf(ctx: Ctx): string {
   return envHome(ctx.env);
 }
 
+/**
+ * `p` collapsed against `home` into portable `~/forward/slash` text (DESIGN.md
+ * "Repo store" - the same rule `store.ts`'s `homeCollapse` follows): forward
+ * slashes always, never the host separator, so CLI output reads the same on
+ * every platform.
+ */
 export function tildeify(p: string, home: string): string {
-  if (home && p.startsWith(home + path.sep)) return `~${p.slice(home.length)}`;
-  if (home && p === home) return '~';
+  if (!home) return p;
+  const nP = p.replace(/\\/g, '/');
+  const nHome = home.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!nHome) return p;
+  if (nP === nHome) return '~';
+  if (nP.startsWith(nHome) && nP[nHome.length] === '/') return `~${nP.slice(nHome.length)}`;
   return p;
 }
 

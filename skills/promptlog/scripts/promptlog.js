@@ -139,14 +139,27 @@ function findGitRoot(cwd) {
     cur = parent;
   }
 }
+function canonicalPath(p, pathMod = import_node_path.default) {
+  let dir = pathMod.resolve(p);
+  const tail = [];
+  for (let i = 0; i < 64; i += 1) {
+    try {
+      dir = import_node_fs.default.realpathSync.native(dir);
+      break;
+    } catch {
+      const parent = pathMod.dirname(dir);
+      if (parent === dir) break;
+      tail.push(dir.slice(parent.length).replace(/^[\\/]/, ""));
+      dir = parent;
+    }
+  }
+  const r = tail.length ? [dir, ...tail.reverse()].join(pathMod.sep) : dir;
+  return process.platform === "win32" || pathMod === import_node_path.default.win32 ? r.toLowerCase() : r;
+}
 function isUnderRepo(candidateCwd, repoRoot2, pathMod = import_node_path.default) {
   if (!candidateCwd || !repoRoot2) return false;
-  let a = pathMod.resolve(candidateCwd);
-  let b = pathMod.resolve(repoRoot2);
-  if (process.platform === "win32" || pathMod === import_node_path.default.win32) {
-    a = a.toLowerCase();
-    b = b.toLowerCase();
-  }
+  const a = canonicalPath(candidateCwd, pathMod);
+  const b = canonicalPath(repoRoot2, pathMod);
   if (a === b) return true;
   const rel = pathMod.relative(b, a);
   return rel !== "" && !rel.startsWith("..") && !pathMod.isAbsolute(rel);
@@ -156,6 +169,7 @@ function isUnderRepo(candidateCwd, repoRoot2, pathMod = import_node_path.default
 var import_node_fs2 = __toESM(require("node:fs"));
 var import_node_os = __toESM(require("node:os"));
 var import_node_path2 = __toESM(require("node:path"));
+var posix = import_node_path2.default.posix;
 var SHELL_SPLIT = /(?:\|\||&&|[;\n|])/;
 var NOT_A_FILE = /* @__PURE__ */ new Set(["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "-"]);
 function unquote(s) {
@@ -184,16 +198,19 @@ function plausiblePath(p) {
   return v;
 }
 var UNKNOWN_DIR = Symbol("unknown cwd");
+function homeForwardSlash() {
+  return import_node_os.default.homedir().replace(/\\/g, "/");
+}
 function resolveCd(dir, rawArg) {
-  if (rawArg == null) return import_node_os.default.homedir();
+  if (rawArg == null) return homeForwardSlash();
   const arg = unquote(rawArg);
   if (!arg || arg === "-") return UNKNOWN_DIR;
   if (/\$|`/.test(arg)) return UNKNOWN_DIR;
-  if (arg === "~") return import_node_os.default.homedir();
-  if (arg.startsWith("~/")) return import_node_path2.default.join(import_node_os.default.homedir(), arg.slice(2));
-  if (import_node_path2.default.isAbsolute(arg)) return arg;
+  if (arg === "~") return homeForwardSlash();
+  if (arg.startsWith("~/")) return posix.join(homeForwardSlash(), arg.slice(2));
+  if (posix.isAbsolute(arg)) return arg;
   if (dir === UNKNOWN_DIR) return UNKNOWN_DIR;
-  return dir == null ? arg : import_node_path2.default.join(dir, arg);
+  return dir == null ? arg : posix.join(dir, arg);
 }
 function stripHeredocBodies(text) {
   const lines = String(text ?? "").split("\n");
@@ -230,12 +247,12 @@ function parseShellWrites(command) {
   const add = (p) => {
     const v = plausiblePath(p);
     if (!v) return;
-    if (import_node_path2.default.isAbsolute(v)) {
+    if (posix.isAbsolute(v)) {
       if (!found.includes(v)) found.push(v);
       return;
     }
     if (dir === UNKNOWN_DIR) return;
-    const full = dir == null ? v : import_node_path2.default.join(dir, v);
+    const full = dir == null ? v : posix.join(dir, v);
     if (!found.includes(full)) found.push(full);
   };
   for (const rawSegment of cmd.split(SHELL_SPLIT)) {
@@ -255,7 +272,7 @@ function parseShellWrites(command) {
     }
     if (i >= w.length) continue;
     const argv = w.slice(i);
-    const cmd0 = import_node_path2.default.basename(unquote(argv[0]));
+    const cmd0 = posix.basename(unquote(argv[0]));
     const rest = argv.slice(1);
     const positional = rest.filter((a) => !a.startsWith("-"));
     if (cmd0 === "cd" || cmd0 === "pushd") {
@@ -316,7 +333,7 @@ function relativeTo(root, abs) {
 function locateFile(file, { cwd, root }) {
   let abs = String(file ?? "");
   if (!abs) return null;
-  if (!import_node_path2.default.isAbsolute(abs)) abs = import_node_path2.default.resolve(cwd || process.cwd(), abs);
+  if (!import_node_path2.default.posix.isAbsolute(abs)) abs = import_node_path2.default.posix.resolve(cwd || process.cwd(), abs);
   return { file: abs, rel: relativeTo(root, abs) };
 }
 
@@ -3292,12 +3309,7 @@ var STDIN_HOOKS = /* @__PURE__ */ new Set([
 ]);
 var OWN_WATCHDOG_MS = 2e3;
 function canon(p) {
-  try {
-    const dir = import_node_fs9.default.realpathSync(import_node_path18.default.dirname(p));
-    return import_node_path18.default.join(dir, import_node_path18.default.basename(p));
-  } catch {
-    return null;
-  }
+  return canonicalPath(p);
 }
 function isExecutable(file) {
   try {
@@ -3478,7 +3490,6 @@ function runDispatch(hookName, hookArgs, chainDirRaw, ctx) {
 // src/core/commands/doctor.ts
 var import_node_child_process5 = require("node:child_process");
 var import_node_fs18 = __toESM(require("node:fs"));
-var import_node_os13 = __toESM(require("node:os"));
 var import_node_path30 = __toESM(require("node:path"));
 
 // src/core/updateCheck.ts
@@ -4540,8 +4551,8 @@ function collapseAgainst(target, home) {
   const nHome = withForwardSlashes(home).replace(/\/+$/, "");
   if (!nHome) return null;
   if (nTarget === nHome) return "~";
-  if (nTarget.startsWith(nHome) && (nTarget[nHome.length] === "/" || nTarget[nHome.length] === "\\")) {
-    return `~${target.slice(nHome.length)}`;
+  if (nTarget.startsWith(nHome) && nTarget[nHome.length] === "/") {
+    return `~${nTarget.slice(nHome.length)}`;
   }
   return null;
 }
@@ -4561,7 +4572,9 @@ function homeCollapse(p) {
 function homeExpand(p) {
   const s = p ?? "";
   if (s === "~") return import_node_os12.default.homedir();
-  if (s.startsWith("~/")) return import_node_path22.default.join(import_node_os12.default.homedir(), s.slice(2));
+  if (s.startsWith("~/") || s.startsWith("~\\")) {
+    return import_node_path22.default.join(import_node_os12.default.homedir(), ...s.slice(2).split(/[/\\]+/));
+  }
   return s;
 }
 function findRepoRoot(cwd) {
@@ -5884,6 +5897,7 @@ function resolveSession({
 } = {}) {
   const resolvedCwd = import_node_path26.default.resolve(cwd);
   const agentsToTry = orderedAgents(agent);
+  home = home ?? envHome(env2);
   if (session) {
     if (isFile(session)) {
       const base = import_node_path26.default.basename(session);
@@ -5997,10 +6011,11 @@ function candidateSessions({
     results.push({ agent: a, path: p, sessionId: sessionIdOf(parsed, p), session: parsed, how: how ?? null });
   };
   const ids = narrowedAgentIds(agent);
+  const home = envHome(env2);
   const wantedEnv = session || env2.CLAUDE_CODE_SESSION_ID || env2.CODEX_THREAD_ID || env2.CODEX_SESSION_ID || null;
   if (wantedEnv) {
     try {
-      const r = resolveSession({ agent, session, cwd, env: env2 });
+      const r = resolveSession({ agent, session, cwd, env: env2, home });
       if (r.path) push(r.agent ?? agent, r.path, r.how);
     } catch {
     }
@@ -6010,7 +6025,7 @@ function candidateSessions({
         const adapter = byId(a);
         if (!adapter) continue;
         try {
-          const p = adapter.findSession(wantedEnv, { cwd });
+          const p = adapter.findSession(wantedEnv, { cwd, home });
           if (p) push(a, p, how);
         } catch {
         }
@@ -6020,7 +6035,7 @@ function candidateSessions({
     if (results.length && !all) return results;
   }
   try {
-    for (const c of listCandidateSessions({ cwd, since: sinceMs })) {
+    for (const c of listCandidateSessions({ cwd, since: sinceMs, home })) {
       if (!ids.includes(c.agent)) continue;
       push(c.agent, c.path, "newest-for-cwd");
     }
@@ -6031,28 +6046,19 @@ function candidateSessions({
     const adapter = byId(a);
     if (!adapter) continue;
     try {
-      for (const loc of adapter.locate({ cwd })) push(a, loc.path, "newest-for-cwd");
+      for (const loc of adapter.locate({ cwd, home })) push(a, loc.path, "newest-for-cwd");
     } catch {
     }
   }
   return results;
 }
-function realpath(p) {
-  try {
-    return import_node_fs15.default.realpathSync(p);
-  } catch {
-    return p;
-  }
-}
 function touchesRepo(turn, root) {
   const files3 = [...turn.files];
   if (!files3.length) return true;
-  const realRoot = realpath(root);
   for (const f of files3) {
     if (!f) continue;
     if (!import_node_path27.default.isAbsolute(f)) return true;
-    const relPath = import_node_path27.default.relative(realRoot, realpath(f));
-    if (relPath === "" || relPath && !relPath.startsWith("..") && !import_node_path27.default.isAbsolute(relPath)) return true;
+    if (isUnderRepo(f, root)) return true;
   }
   return false;
 }
@@ -6337,9 +6343,11 @@ function isPartialCommit(ctx, root) {
   const idx = ctx.env.GIT_INDEX_FILE ?? "";
   if (!idx) return false;
   const gitDir = gitDirOf(root);
-  const here = import_node_path27.default.resolve(root, idx);
-  const real = [import_node_path27.default.join(gitDir, "index"), import_node_path27.default.join(gitDir, "index.lock")].map((p) => import_node_path27.default.resolve(p));
-  return !real.includes(here);
+  const here = canonicalPath(import_node_path27.default.resolve(root, idx));
+  const real = new Set(
+    [import_node_path27.default.join(gitDir, "index"), import_node_path27.default.join(gitDir, "index.lock")].map((p) => canonicalPath(p))
+  );
+  return !real.has(here);
 }
 
 // src/core/commands/hooks.ts
@@ -6452,14 +6460,7 @@ function bakedEntryPoint(file) {
   return value && value !== "__PROMPTLOG_JS__" ? value : null;
 }
 function samePath(a, b) {
-  const real = (p) => {
-    try {
-      return import_node_fs16.default.realpathSync(p);
-    } catch {
-      return import_node_path28.default.resolve(p);
-    }
-  };
-  return real(a) === real(b);
+  return canonicalPath(a) === canonicalPath(b);
 }
 function installHooks(dir, { renameExisting = false, chainDir = null } = {}) {
   import_node_fs16.default.mkdirSync(dir, { recursive: true });
@@ -6814,8 +6815,12 @@ function homeOf(ctx) {
   return envHome(ctx.env);
 }
 function tildeify(p, home) {
-  if (home && p.startsWith(home + import_node_path29.default.sep)) return `~${p.slice(home.length)}`;
-  if (home && p === home) return "~";
+  if (!home) return p;
+  const nP = p.replace(/\\/g, "/");
+  const nHome = home.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!nHome) return p;
+  if (nP === nHome) return "~";
+  if (nP.startsWith(nHome) && nP[nHome.length] === "/") return `~${nP.slice(nHome.length)}`;
   return p;
 }
 function rmrf(p) {
@@ -7306,7 +7311,7 @@ function which(bin) {
   }
   return null;
 }
-function repoStatus(cwd) {
+function repoStatus(cwd, home) {
   function git2(gitArgs) {
     try {
       return (0, import_node_child_process5.execFileSync)("git", gitArgs, {
@@ -7326,7 +7331,7 @@ function repoStatus(cwd) {
   const candidates = [];
   const hooksPath = git2(["config", "--get", "core.hooksPath"]);
   if (hooksPath) {
-    const dir = hooksPath.startsWith("~") ? import_node_path30.default.join(import_node_os13.default.homedir(), hooksPath.slice(1)) : hooksPath;
+    const dir = hooksPath.startsWith("~") ? import_node_path30.default.join(home, hooksPath.slice(1)) : hooksPath;
     candidates.push(import_node_path30.default.join(import_node_path30.default.isAbsolute(dir) ? dir : import_node_path30.default.join(root, dir), "prepare-commit-msg"));
   }
   candidates.push(import_node_path30.default.join(root, ".git", "hooks", "prepare-commit-msg"));
@@ -7358,7 +7363,7 @@ function hookBakedPathWarnings(cwd, home) {
   if (root) {
     const hooksPath = git2(["config", "--get", "core.hooksPath"]);
     if (hooksPath) {
-      const dir = hooksPath.startsWith("~") ? import_node_path30.default.join(import_node_os13.default.homedir(), hooksPath.slice(1)) : hooksPath;
+      const dir = hooksPath.startsWith("~") ? import_node_path30.default.join(home, hooksPath.slice(1)) : hooksPath;
       dirs.add(import_node_path30.default.isAbsolute(dir) ? dir : import_node_path30.default.join(root, dir));
     } else {
       dirs.add(import_node_path30.default.join(root, ".git", "hooks"));
@@ -7457,7 +7462,7 @@ async function doctor(args, ctx) {
     } catch {
     }
   }
-  const repo = repoStatus(ctx.cwd);
+  const repo = repoStatus(ctx.cwd, home);
   const hookWarnings = hookBakedPathWarnings(ctx.cwd, home);
   const updateCheckDisabled = isDisabled({ env: ctx.env, values: v, home });
   const updateCheckCache = readUpdateCache(home);
@@ -7536,7 +7541,6 @@ async function doctor(args, ctx) {
 
 // src/core/commands/init.ts
 var import_node_fs19 = __toESM(require("node:fs"));
-var import_node_os14 = __toESM(require("node:os"));
 var import_node_path31 = __toESM(require("node:path"));
 function shQuote(s) {
   return `'${s.replace(/'/g, "'\\''")}'`;
@@ -7564,7 +7568,7 @@ async function init(args, ctx) {
   registerMergeDrivers(root);
   let hookDir;
   if (values.global) {
-    hookDir = import_node_path31.default.join(import_node_os14.default.homedir(), ".promptlog", "hooks");
+    hookDir = import_node_path31.default.join(envHome(ctx.env), ".promptlog", "hooks");
     const prevRaw = git(["config", "--global", "--path", "--get", "core.hooksPath"], { cwd: root });
     let prev = prevRaw.ok && prevRaw.stdout.trim() ? prevRaw.stdout.trim() : null;
     if (prev && !import_node_path31.default.isAbsolute(prev)) {
@@ -8140,7 +8144,6 @@ async function statusline(_args, ctx) {
 
 // src/core/commands/view.ts
 var import_node_fs21 = __toESM(require("node:fs"));
-var import_node_os15 = __toESM(require("node:os"));
 var import_node_path34 = __toESM(require("node:path"));
 
 // src/core/renderHtml.ts
@@ -9006,11 +9009,11 @@ async function sessions(args, ctx) {
   }
   return 0;
 }
-function hookInstalled(repoRootPath) {
+function hookInstalled(repoRootPath, home) {
   const candidates = [];
   const hooksPath = configGet(repoRootPath, "core.hooksPath");
   if (hooksPath) {
-    const dir = hooksPath.startsWith("~") ? import_node_path34.default.join(import_node_os15.default.homedir(), hooksPath.slice(1)) : hooksPath;
+    const dir = hooksPath.startsWith("~") ? import_node_path34.default.join(home, hooksPath.slice(1)) : hooksPath;
     candidates.push(
       import_node_path34.default.join(import_node_path34.default.isAbsolute(dir) ? dir : import_node_path34.default.join(repoRootPath, dir), "prepare-commit-msg")
     );
@@ -9035,7 +9038,7 @@ async function env(args, ctx) {
   });
   const root = repoRoot(ctx.cwd);
   const enabled = root ? configGet(root, "promptlog.enabled") : null;
-  const hooks = root ? hookInstalled(root) : false;
+  const hooks = root ? hookInstalled(root, homeOf3(ctx)) : false;
   let ui = "unknown";
   if (resolved.agent && resolved.path) {
     const adapter = byId(resolved.agent);

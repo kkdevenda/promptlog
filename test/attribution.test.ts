@@ -509,7 +509,9 @@ describe('attribution', () => {
     const edit = by('edit').find((e) => e.after === 'const greeting = "hello";');
     expect(edit, JSON.stringify(list, null, 1)).toBeTruthy();
     expect(edit?.rel).toBe('src/greet.js');
-    expect(edit?.file, 'absolute path too').toBe(path.join(root, 'src/greet.js'));
+    // `root`/`file_path` are POSIX text like every transcript path (DESIGN.md
+    // "Hooks"): forward slashes always, never the host separator.
+    expect(edit?.file, 'absolute path too').toBe(`${root}/src/greet.js`);
     expect(edit?.before).toBe('const greeting = "hi";');
     expect(edit?.turnId, 'credited to the turn that ran it').toBe(session.turns[0]?.gid);
 
@@ -659,9 +661,12 @@ describe('attribution', () => {
     expect(p('echo x > plain.txt')).toEqual(['plain.txt']);
     // A relative cd stays relative - it is still anchored to the same place.
     expect(p('cd src && echo x > y.js')).toEqual(['src/y.js']);
-    expect(p('cd ~ && echo x > y.js')).toEqual([path.join(home, 'y.js')]);
-    expect(p('cd ~/work && echo x > y.js')).toEqual([path.join(home, 'work', 'y.js')]);
-    expect(p('cd && echo x > y.js'), 'bare cd goes home').toEqual([path.join(home, 'y.js')]);
+    // The tracked directory is always POSIX text (DESIGN.md "Hooks"), so a
+    // home-relative `cd` comes back forward-slash even on a Windows host.
+    const homeSlash = home.replace(/\\/g, '/');
+    expect(p('cd ~ && echo x > y.js')).toEqual([`${homeSlash}/y.js`]);
+    expect(p('cd ~/work && echo x > y.js')).toEqual([`${homeSlash}/work/y.js`]);
+    expect(p('cd && echo x > y.js'), 'bare cd goes home').toEqual([`${homeSlash}/y.js`]);
     // An absolute target is never re-anchored.
     expect(p('cd /a && echo x > /b/y.js')).toEqual(['/b/y.js']);
     // Unresolvable: give up for the rest of the command rather than guess.

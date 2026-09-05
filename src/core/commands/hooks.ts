@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { LinkedEntry } from '../attribution';
+import { canonicalPath } from '../fsutil';
 import * as git from '../git';
 import { arr, errorMessage, rec, str } from '../json';
 import { entryPoint } from '../paths';
@@ -199,16 +200,11 @@ export function bakedEntryPoint(file: string): string | null {
   return value && value !== '__PROMPTLOG_JS__' ? value : null;
 }
 
-/** Same directory, symlinks resolved when both exist. */
+/** Same directory: resolved, `realpath`'d when it exists, case-folded on
+ * win32 (`fsutil.canonicalPath`) - so a short 8.3 alias or a case
+ * difference in one of the two never reads as a different directory. */
 export function samePath(a: string, b: string): boolean {
-  const real = (p: string): string => {
-    try {
-      return fs.realpathSync(p);
-    } catch {
-      return path.resolve(p);
-    }
-  };
-  return real(a) === real(b);
+  return canonicalPath(a) === canonicalPath(b);
 }
 
 /**

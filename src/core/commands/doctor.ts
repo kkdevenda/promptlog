@@ -9,7 +9,6 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { agents } from '../../agents';
 import type { SkillScope } from '../../agents/types';
@@ -50,7 +49,7 @@ interface RepoStatus {
   hooksInstalled: boolean;
 }
 
-function repoStatus(cwd: string): RepoStatus {
+function repoStatus(cwd: string, home: string): RepoStatus {
   function git(gitArgs: string[]): string | null {
     try {
       return execFileSync('git', gitArgs, {
@@ -72,7 +71,7 @@ function repoStatus(cwd: string): RepoStatus {
   const candidates: string[] = [];
   const hooksPath = git(['config', '--get', 'core.hooksPath']);
   if (hooksPath) {
-    const dir = hooksPath.startsWith('~') ? path.join(os.homedir(), hooksPath.slice(1)) : hooksPath;
+    const dir = hooksPath.startsWith('~') ? path.join(home, hooksPath.slice(1)) : hooksPath;
     candidates.push(path.join(path.isAbsolute(dir) ? dir : path.join(root, dir), 'prepare-commit-msg'));
   }
   candidates.push(path.join(root, '.git', 'hooks', 'prepare-commit-msg'));
@@ -113,7 +112,7 @@ function hookBakedPathWarnings(cwd: string, home: string): string[] {
   if (root) {
     const hooksPath = git(['config', '--get', 'core.hooksPath']);
     if (hooksPath) {
-      const dir = hooksPath.startsWith('~') ? path.join(os.homedir(), hooksPath.slice(1)) : hooksPath;
+      const dir = hooksPath.startsWith('~') ? path.join(home, hooksPath.slice(1)) : hooksPath;
       dirs.add(path.isAbsolute(dir) ? dir : path.join(root, dir));
     } else {
       dirs.add(path.join(root, '.git', 'hooks'));
@@ -238,7 +237,7 @@ export async function doctor(args: CommandArgs, ctx: Ctx): Promise<number> {
     }
   }
 
-  const repo = repoStatus(ctx.cwd);
+  const repo = repoStatus(ctx.cwd, home);
   const hookWarnings = hookBakedPathWarnings(ctx.cwd, home);
 
   const updateCheckDisabled = updateCheck.isDisabled({ env: ctx.env, values: v, home });

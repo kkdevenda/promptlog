@@ -4,9 +4,49 @@
 - **Date:** 2026-09-05
 - **Scope:** whole-project review against five parameters (not a diff review)
 - **Sources:** `src/`, `skills/promptlog/`, `docs/DESIGN.md`, CI, tests, [agentskills.io specification](https://agentskills.io/specification)
-- **Tests:** not re-run for this review
 
-## Verdict
+## Re-review — 2026-09-05 afternoon
+
+Checked the five recommended changes plus the extras that landed with them. Verdict **improved: 7.5 → 8.4**. The two user-facing weak scores (install 6.5, upgrade 6.0) are the ones that moved.
+
+| Parameter | Was | Now | Judgment |
+|---|---:|---:|---|
+| Code quality | 8.0 | 8.5 | God modules split; hooks.ts is still large but one concern |
+| Features | 8.5 | 8.5 | Same product. Windows went further than asked (Node hooks + CI) |
+| Installation | 6.5 | 8.0 | One recommended path per host; rest demoted |
+| Upgrade / maintain | 6.0 | 8.0 | External copies update by default; baked-path warn; dry-run |
+| Skill shipping | 8.5 | 9.0 | `license: MIT`; Cursor gone from `KNOWN_UNSUPPORTED` |
+
+**Tests this pass:** `test/contract.test.ts` green (14). `test/skill.test.ts` and `test/integration.test.ts` were not re-run to completion here (sandbox blocked `mkdir ~/.cursor` and `git init` hooks). Those files now contain the cases the fixes need: dry-run, external update by default, managed-by listing, doctor missing baked path.
+
+### Finding status
+
+| ID | Original finding | Status |
+|---|---|---|
+| P1 install | Five channels, no default | **Fixed.** README Quick start is one block per host. `$skill-installer` and `npm i -g` sit under “Other ways to install.” |
+| P1 upgrade | External copies need `--all` | **Fixed, and better than asked.** `skill update` refreshes recorded *and* external copies. Plugin-cache copies are listed as `managed by <command>` and left alone. `--dry-run` writes nothing. `--all` is a one-release no-op alias. Covered in `test/skill.test.ts`. |
+| P2 god modules | `repo.ts` 1,787 / `store.ts` 1,411 | **Fixed.** Split into `init.ts`, `hooks.ts`, `recall.ts`, `dispatch.ts`, `doctor.ts`, `storeIndex.ts`. `repo.ts` is 671 (selection/attribution). `store.ts` is 392. Residual: `hooks.ts` is 744 — one file, one job. |
+| P2 baked path | Fail-open and silent | **Fixed.** Generated hook warns on stderr and falls back to `promptlog` on PATH. `doctor` lists missing baked paths. Tests in `test/integration.test.ts`. |
+| P3 fat adapter | No template / no-op rule | **Fixed.** `src/agents/_template/` is an honest no-op, not registered. CONTRIBUTING says copy it. Contract test asserts every capability is false. |
+| P3 design drift | Claude+Codex only; docs say v0.2 | **Fixed.** DESIGN.md names all three agents and Cursor’s transcript path. `docs/README.md` says 0.5.0. Residual: `skill.ts` / `doctor.ts` file headers still cite a missing `DISTRIBUTION.md`. |
+| P3 skill hygiene | No license; Cursor in unsupported | **Fixed.** `license: MIT` in SKILL.md. `KNOWN_UNSUPPORTED` is agents / copilot / windsurf / opencode. `allowed-tools` still Claude `Bash()` — left as specified. |
+| P3 Windows | Not a product | **Exceeded.** Hooks are Node (`dispatch.ts`), not POSIX `sh`. CI matrix includes `windows-latest` (Node 20 and 22). README says macOS/Linux verified by hand; Windows is CI-only. That is the honest line. |
+
+### What is still true
+
+Host-level updates still go through five package managers. That is not a promptlog bug anymore: `skill update` now *says* `managed by /plugin update promptlog` instead of silently skipping or overwriting a marketplace copy. Uninstall still leaves externals alone unless `--all` — correct; uninstall should stay conservative.
+
+`hooks.ts` at 744 lines is the next place a hook bug will hide. It is no longer mixed with init, review, and store writes.
+
+### Recommended order now
+
+1. Drop the `DISTRIBUTION.md` cite from `skill.ts` / `doctor.ts` headers (or add a one-line pointer to PLAN-v0.3.md).
+2. Leave `hooks.ts` alone until the next hook case; then split dispatch vs install vs doctor-probe if it grows again.
+3. A hand pass on Windows desktop when you have one — CI is not that.
+
+---
+
+## Original verdict (morning)
 
 **7.5 / 10.** Unusually serious for 0.5.0. The stance is real (read transcripts, do not capture), the adapter/core split is sound, and the skill is packaged the way a distributable skill should be. The cost of that seriousness is two god modules and a fragmented install/upgrade story.
 

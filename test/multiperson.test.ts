@@ -19,12 +19,12 @@
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 import { slug } from '../src/agents/claude/locate';
 import * as merge from '../src/core/merge';
 import type { SessionDoc, TurnRecord } from '../src/core/records';
+import { tmpDir } from './helpers';
 
 const REPO = path.resolve(__dirname, '..');
 const PROMPTLOG = path.join(REPO, 'bin', 'promptlog.js');
@@ -42,7 +42,7 @@ function mkuuid(n: number): string {
 
 /** A fresh, isolated HOME + git identity. Does not create a repo. */
 function sandbox(tag: string): { home: string; env: NodeJS.ProcessEnv } {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `promptlog-mp-${tag}-`)));
+  const home = tmpDir(`promptlog-mp-${tag}-`);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,

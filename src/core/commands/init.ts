@@ -5,7 +5,6 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as git from '../git';
 import { errorMessage, isRecord } from '../json';
@@ -24,7 +23,7 @@ import {
   writeConfig,
 } from '../store';
 import { reindex as storeReindex } from '../storeIndex';
-import { type CommandArgs, type Ctx, err, out } from '../util';
+import { type CommandArgs, type Ctx, envHome, err, out } from '../util';
 import { bakedChainDir, effectiveHooksPath, holdsOurDispatchers, installHooks, samePath } from './hooks';
 import { positionalsAfter, requireRoot, vals } from './repo';
 
@@ -86,7 +85,7 @@ export async function init(args: CommandArgs, ctx: Ctx): Promise<number> {
   // PROMPTLOG_CHAIN_DIR, so its hooks keep running through the dispatcher.
   let hookDir: string;
   if (values.global) {
-    hookDir = path.join(os.homedir(), '.promptlog', 'hooks');
+    hookDir = path.join(envHome(ctx.env), '.promptlog', 'hooks');
     const prevRaw = git.git(['config', '--global', '--path', '--get', 'core.hooksPath'], { cwd: root });
     let prev = prevRaw.ok && prevRaw.stdout.trim() ? prevRaw.stdout.trim() : null;
     if (prev && !path.isAbsolute(prev)) {

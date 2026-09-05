@@ -8,6 +8,7 @@ import path from 'node:path';
 import { agents } from '../agents/index';
 import type { Adapter } from '../agents/types';
 import { findGitRoot, isFile } from './fsutil';
+import { envHome } from './util';
 
 function orderedAgents(agent: string): readonly Adapter[] {
   const all = agents(); // already sorted by id: claude, codex, ...
@@ -43,6 +44,9 @@ export function resolveSession({
 }: ResolveSessionOptions = {}): ResolvedSession {
   const resolvedCwd = path.resolve(cwd);
   const agentsToTry = orderedAgents(agent);
+  // Fall back to the given env's home rather than os.homedir(), which on
+  // win32 reads USERPROFILE and ignores a sandboxed HOME (tests, --global).
+  home = home ?? envHome(env);
 
   // 1. explicit --session
   if (session) {

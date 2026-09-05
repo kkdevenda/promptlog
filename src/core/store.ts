@@ -72,22 +72,26 @@ function realpathOr(p: string): string {
   }
 }
 
-/** Forward-slash form of `s`, for a slash-agnostic prefix comparison only
- * (never used as the actual path text - a Windows path's real separator is
- * always preserved in whatever gets returned). */
+/** Forward-slash form of `s`: used both for a slash-agnostic prefix
+ * comparison and, in `collapseAgainst`, as the actual returned text - a
+ * home-collapsed path is portable and always uses forward slashes (see
+ * `homeCollapse`), never the host separator. */
 function withForwardSlashes(s: string): string {
   return s.replace(/\\/g, '/');
 }
 
 /**
  * `target` collapsed against `home`, `null` if `target` isn't under it.
- * Comparison folds `\` and `/` to the same thing (a transcript's recorded
- * cwd can use either style relative to `os.homedir()`'s own style, e.g. a
- * Windows home reported with backslashes against a path some tool recorded
- * with forward slashes), but the returned remainder keeps `target`'s own
- * separators untouched: `withForwardSlashes` only changes the string used to
- * decide the split point, which is a fixed character offset into the
- * original.
+ *
+ * Home-collapsed paths are portable text (DESIGN.md "Repo store"): the
+ * result is always `~` followed by FORWARD SLASHES, on every platform, never
+ * the host separator - a session document, an index line or CLI output must
+ * read the same way whether it was written on Windows or not. The
+ * comparison itself folds `\` and `/` to the same thing first (a
+ * transcript's recorded cwd can use either style relative to
+ * `os.homedir()`'s own style, e.g. a Windows home reported with backslashes
+ * against a path some tool recorded with forward slashes), so the remainder
+ * sliced off `nTarget` (already all forward slashes) is what gets returned.
  */
 function collapseAgainst(target: string, home: string): string | null {
   if (!home) return null;
@@ -95,8 +99,8 @@ function collapseAgainst(target: string, home: string): string | null {
   const nHome = withForwardSlashes(home).replace(/\/+$/, '');
   if (!nHome) return null;
   if (nTarget === nHome) return '~';
-  if (nTarget.startsWith(nHome) && (nTarget[nHome.length] === '/' || nTarget[nHome.length] === '\\')) {
-    return `~${target.slice(nHome.length)}`;
+  if (nTarget.startsWith(nHome) && nTarget[nHome.length] === '/') {
+    return `~${nTarget.slice(nHome.length)}`;
   }
   return null;
 }
@@ -108,7 +112,8 @@ function collapseAgainst(target: string, home: string): string | null {
  * `/var/...` and the same directory as `/private/var/...` are one place, and
  * a literal prefix test alone leaves the machine's real home in the record.
  * The comparison also folds `/` and `\` together (see `collapseAgainst`) so
- * a Windows home and a path using either slash style still collapse.
+ * a Windows home and a path using either slash style still collapse - and
+ * the result is always `~/forward/slash/form`, per DESIGN.md.
  */
 export function homeCollapse(p: string | null | undefined): string {
   const s = p ?? '';
@@ -124,10 +129,18 @@ export function homeCollapse(p: string | null | undefined): string {
   return s;
 }
 
+/**
+ * `~/x` -> a platform path, `~\x` accepted too (DESIGN.md "Repo store":
+ * `homeExpand` reads either slash style a home-collapsed path might have
+ * been written with, since an older record or a hand-edited one could still
+ * carry the host separator).
+ */
 export function homeExpand(p: string | null | undefined): string {
   const s = p ?? '';
   if (s === '~') return os.homedir();
-  if (s.startsWith('~/')) return path.join(os.homedir(), s.slice(2));
+  if (s.startsWith('~/') || s.startsWith('~\\')) {
+    return path.join(os.homedir(), ...s.slice(2).split(/[/\\]+/));
+  }
   return s;
 }
 

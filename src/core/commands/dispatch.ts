@@ -25,6 +25,7 @@ import { type SpawnSyncOptions, type SpawnSyncReturns, spawnSync } from 'node:ch
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { canonicalPath } from '../fsutil';
 import * as git from '../git';
 import { entryPoint } from '../paths';
 import { type CommandArgs, type Ctx, err } from '../util';
@@ -40,14 +41,15 @@ const STDIN_HOOKS = new Set([
 
 const OWN_WATCHDOG_MS = 2000;
 
-/** Absolute, symlink-resolved directory + literal basename for `p`, or null. */
-function canon(p: string): string | null {
-  try {
-    const dir = fs.realpathSync(path.dirname(p));
-    return path.join(dir, path.basename(p));
-  } catch {
-    return null;
-  }
+/**
+ * Resolved, `realpath`'d (when it exists), win32-case-folded form of `p`
+ * (`fsutil.canonicalPath`) - so the "never chain to yourself" check below
+ * still recognises the hook file it is looking at even when git invoked it
+ * by a relative path, or - on Windows - by a short 8.3 alias of a directory
+ * a sibling `git` process reports by its long name.
+ */
+function canon(p: string): string {
+  return canonicalPath(p);
 }
 
 function isExecutable(file: string): boolean {

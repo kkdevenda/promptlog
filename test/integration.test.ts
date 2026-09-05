@@ -16,7 +16,6 @@
 
 import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { expect, onTestFinished, test } from 'vitest';
 import { slug } from '../src/agents/claude/locate';
@@ -25,6 +24,7 @@ import type { SessionDoc, TurnRecord } from '../src/core/records';
 import type { IndexHeader } from '../src/core/storeIndex';
 import * as storeIndex from '../src/core/storeIndex';
 import type { Ctx } from '../src/core/util';
+import { tmpDir } from './helpers';
 
 const REPO = path.resolve(__dirname, '..');
 const PROMPTLOG = path.join(REPO, 'bin', 'promptlog.js');
@@ -187,8 +187,8 @@ interface Sandbox {
 }
 
 function sandbox(): Sandbox {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'promptlog-e2e-'));
-  const repoDir = fs.realpathSync(fs.mkdtempSync(path.join(home, 'repo-')));
+  const home = tmpDir('promptlog-e2e-');
+  const repoDir = tmpDir('repo-', home);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
@@ -343,7 +343,11 @@ test('per-repo install: commit, trailers, records, README, amend remap, chaining
   for (const name of ['prepare-commit-msg', 'post-commit', 'post-rewrite']) {
     const p = path.join(hooksDir, name);
     expect(fs.existsSync(p), `${name} installed`).toBe(true);
-    expect(fs.statSync(p).mode & 0o111, `${name} executable`).toBeTruthy();
+    // Windows has no execute-bit concept: chmod is a no-op there, and git
+    // invokes the hook through its shebang line regardless of the mode bits.
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(p).mode & 0o111, `${name} executable`).toBeTruthy();
+    }
     expect(fs.readFileSync(p, 'utf8')).toMatch(/promptlog git hook dispatcher/);
   }
   expect(git(env, repoDir, ['config', '--get', 'promptlog.enabled']).stdout.trim()).toBe('true');
@@ -639,44 +643,52 @@ test('dispatcher runs once with a relative core.hooksPath, and the depth guard s
   );
 });
 
-test('an inherited stdin writer does not stall the commit (dispatcher reads stdin only when the hook takes it)', () => {
-  const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+test.skipIf(process.platform === 'win32')(
+  'an inherited stdin writer does not stall the commit (dispatcher reads stdin only when the hook takes it)',
+  () => {
+    // `mkfifo` has no reliable equivalent in Git for Windows' bash, and
+    // `/bin/sh` does not exist on win32 at all: there is no portable way to
+    // build the named-pipe timing rig this test needs there.
+    const { home, repoDir, env } = sandbox();
+    onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
 
-  writeTranscript(home, repoDir);
-  gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
-  expect(promptlog(env, repoDir, ['init']).code).toBe(0);
+    writeTranscript(home, repoDir);
+    gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
+    expect(promptlog(env, repoDir, ['init']).code).toBe(0);
 
-  fs.writeFileSync(path.join(repoDir, 'a.txt'), 'a\n', 'utf8');
-  gitOk(env, repoDir, ['add', 'a.txt', '.gitattributes']);
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'a\n', 'utf8');
+    gitOk(env, repoDir, ['add', 'a.txt', '.gitattributes']);
 
-  // Give the commit a stdin whose writer stays alive for 3 s. A hook that
-  // slurps stdin unconditionally blocks on `cat` until that writer closes.
-  // A plain `sleep 3 | git commit` would not measure this: the shell waits for
-  // every member of the pipeline, so it always takes 3 s. A fifo lets us time
-  // `git commit` on its own.
-  const script = [
-    'set -e',
-    'rm -f pl.fifo',
-    'mkfifo pl.fifo',
-    '( sleep 3 ) > pl.fifo 2>/dev/null &',
-    'git commit -q -m "piped stdin" < pl.fifo',
-    'rm -f pl.fifo',
-  ].join('\n');
-  const t0 = Date.now();
-  const r = spawnSync('/bin/sh', ['-c', script], { cwd: repoDir, env, encoding: 'utf8' });
-  const elapsed = Date.now() - t0;
-  expect(r.status, `commit failed: ${r.stderr}`).toBe(0);
-  expect(elapsed, `commit must not wait for the pipe writer (took ${elapsed}ms)`).toBeLessThan(1500);
-  expect(gitOk(env, repoDir, ['log', '-1', '--format=%B'])).toMatch(/Prompt-Id: claude:/);
+    // Give the commit a stdin whose writer stays alive for 3 s. A hook that
+    // slurps stdin unconditionally blocks on `cat` until that writer closes.
+    // A plain `sleep 3 | git commit` would not measure this: the shell waits for
+    // every member of the pipeline, so it always takes 3 s. A fifo lets us time
+    // `git commit` on its own.
+    const script = [
+      'set -e',
+      'rm -f pl.fifo',
+      'mkfifo pl.fifo',
+      '( sleep 3 ) > pl.fifo 2>/dev/null &',
+      'git commit -q -m "piped stdin" < pl.fifo',
+      'rm -f pl.fifo',
+    ].join('\n');
+    const t0 = Date.now();
+    const r = spawnSync('/bin/sh', ['-c', script], { cwd: repoDir, env, encoding: 'utf8' });
+    const elapsed = Date.now() - t0;
+    expect(r.status, `commit failed: ${r.stderr}`).toBe(0);
+    expect(elapsed, `commit must not wait for the pipe writer (took ${elapsed}ms)`).toBeLessThan(1500);
+    expect(gitOk(env, repoDir, ['log', '-1', '--format=%B'])).toMatch(/Prompt-Id: claude:/);
 
-  // post-rewrite genuinely needs stdin, and still gets it.
-  const sha1 = gitOk(env, repoDir, ['rev-parse', 'HEAD']).trim();
-  gitOk(env, repoDir, ['commit', '-q', '--amend', '-m', 'piped stdin, reworded']);
-  const sha2 = gitOk(env, repoDir, ['rev-parse', 'HEAD']).trim();
-  const commits = shas(Object.values(sessionDoc(repoDir).turns)[0]);
-  expect(commits.includes(sha2) && !commits.includes(sha1), `post-rewrite still ran: ${commits}`).toBe(true);
-});
+    // post-rewrite genuinely needs stdin, and still gets it.
+    const sha1 = gitOk(env, repoDir, ['rev-parse', 'HEAD']).trim();
+    gitOk(env, repoDir, ['commit', '-q', '--amend', '-m', 'piped stdin, reworded']);
+    const sha2 = gitOk(env, repoDir, ['rev-parse', 'HEAD']).trim();
+    const commits = shas(Object.values(sessionDoc(repoDir).turns)[0]);
+    expect(commits.includes(sha2) && !commits.includes(sha1), `post-rewrite still ran: ${commits}`).toBe(
+      true,
+    );
+  },
+);
 
 test('re-running init rotates, never deletes, a hook installed after us', () => {
   const { home, repoDir, env } = sandbox();
@@ -1372,10 +1384,13 @@ test('a checkout path with an apostrophe, a space and a non-ASCII char still yie
   // the copy. The repo gets an awkward path too.
   const odd = path.join(home, "o'brien café x");
   const checkout = path.join(odd, 'promptlog');
+  fs.mkdirSync(checkout, { recursive: true });
   for (const part of ['bin', path.join('skills', 'promptlog', 'scripts'), 'package.json']) {
-    fs.cpSync(path.join(REPO, part), path.join(checkout, part), { recursive: true });
+    const dest = path.join(checkout, part);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.cpSync(path.join(REPO, part), dest, { recursive: true, force: true });
   }
-  const repoDir = fs.realpathSync(fs.mkdtempSync(path.join(odd, 'repo-')));
+  const repoDir = tmpDir('repo-', odd);
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
 
