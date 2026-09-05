@@ -170,8 +170,8 @@ is scoped tightly:
 | Gemini CLI | planned |
 
 **Platforms:** macOS and Linux, verified on real machines. Windows with Git for
-Windows runs in CI from 0.5.0; hooks and recall are exercised there but not yet
-verified by hand on a Windows desktop. Reports welcome.
+Windows passes the full suite in CI (recall, hooks, attribution) from 0.5.0, but
+has not yet been verified by hand on a Windows desktop. Reports welcome.
 
 ## Roadmap
 
