@@ -1,0 +1,63 @@
+{
+  "name": "@kkdevenda/promptlog",
+  "version": "0.5.0",
+  "description": "git-log style tree of your AI coding prompts, built from Claude Code, Codex, and Cursor transcripts",
+  "author": "Krishna Kumar Devenda (https://github.com/kkdevenda)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkdevenda/promptlog.git"
+  },
+  "homepage": "https://github.com/kkdevenda/promptlog#readme",
+  "bugs": {
+    "url": "https://github.com/kkdevenda/promptlog/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "cursor",
+    "agent-skills",
+    "prompts",
+    "git",
+    "provenance"
+  ],
+  "bin": {
+    "promptlog": "skills/promptlog/scripts/promptlog.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.3.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "check-skill": "node scripts/check-skill.mjs",
+    "test": "npm run typecheck && npm run lint && npm run check-skill && npm run build && vitest run",
+    "smoke": "PROMPTLOG_SMOKE=1 vitest run test/smoke.test.ts",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "files": [
+    "bin",
+    "skills",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "@types/node": "^18.19.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "@biomejs/biome@2.5.12": true
+  }
+}

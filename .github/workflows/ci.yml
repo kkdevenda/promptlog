@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [18, 20, 22, 24]
+        exclude:
+          # Windows (Git for Windows bash) runs the two mainstream Node lines;
+          # the oldest and newest stay ubuntu/macos only to keep the matrix small.
+          - os: windows-latest
+            node: 18
+          - os: windows-latest
+            node: 24
+    defaults:
+      run:
+        shell: bash
+    env:
+      PROMPTLOG_NO_UPDATE_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - run: node --version
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.com
+
+      - run: npm ci
+
+      # GIT_EDITOR is deliberately not set: the suite must be non-interactive on its own.
+      - name: Typecheck, lint, build, test
+        run: npm test
+
+      # The bundle in skills/promptlog/scripts/promptlog.js is committed because
+      # the plugin marketplaces and `npx skills add` install straight from git.
+      # It must always match src/ (docs/DESIGN.md "Layout").
+      - name: Committed bundle is fresh
+        run: git diff --exit-code -- skills/promptlog/scripts/promptlog.js
+
+      - name: Pack smoke
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TARBALL="$(npm pack --json --ignore-scripts | node -p "JSON.parse(require('fs').readFileSync(0, 'utf-8'))[0].filename")"
+          test -f "$TARBALL"
+          REPO="$PWD"
+          SMOKE_DIR="${{ runner.temp }}/smoke"
+          rm -rf "$SMOKE_DIR" && mkdir -p "$SMOKE_DIR" && cd "$SMOKE_DIR"
+          npm init -y >/dev/null
+          npm i --no-audit --no-fund "$REPO/$TARBALL"
+          OUT="$(npx promptlog --version)"
+          echo "$OUT"
+          test "$OUT" = "promptlog $VERSION"
+          set +e
+          npx promptlog skill-entry --no-color --fenced >"$SMOKE_DIR/skill-entry.out" 2>"$SMOKE_DIR/skill-entry.err"
+          STATUS=$?
+          set -e
+          echo "skill-entry exit $STATUS"
+          cat "$SMOKE_DIR/skill-entry.err"
+          test "$STATUS" -eq 0 || test "$STATUS" -eq 1
+          ! grep -q 'Cannot find module' "$SMOKE_DIR/skill-entry.err"
+
+      - name: Standalone skill smoke
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          SKILL_ONLY_DIR="${{ runner.temp }}/skill-only"
+          rm -rf "$SKILL_ONLY_DIR" && cp -R skills/promptlog "$SKILL_ONLY_DIR"
+          EMPTY_HOME="$(mktemp -d)"
+          OUT="$(HOME="$EMPTY_HOME" node "$SKILL_ONLY_DIR/scripts/promptlog.js" --version)"
+          echo "$OUT"
+          test "$OUT" = "promptlog $VERSION"
+
+  check-skill:
+    name: check-skill
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-skill.mjs

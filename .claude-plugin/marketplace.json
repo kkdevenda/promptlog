@@ -1,0 +1,11 @@
+{
+  "name": "promptlog-marketplace",
+  "owner": "kkdevenda",
+  "plugins": [
+    {
+      "name": "promptlog",
+      "source": "./",
+      "description": "git-log style tree of your AI coding prompts, built from Claude Code, Codex, and Cursor transcripts"
+    }
+  ]
+}

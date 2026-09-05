@@ -1,0 +1,7 @@
+node_modules/
+.DS_Store
+*.log
+*.tgz
+.promptlog/index.jsonl
+.promptlog/.cache/
+.promptlog/*.tmp

@@ -1,0 +1,6 @@
+{
+  "name": "promptlog",
+  "version": "0.5.0",
+  "description": "git-log style tree of your AI coding prompts, built from Claude Code, Codex, and Cursor transcripts",
+  "skills": "./skills/"
+}

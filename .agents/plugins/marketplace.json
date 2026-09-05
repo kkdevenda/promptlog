@@ -1,0 +1,13 @@
+{
+  "name": "promptlog",
+  "interface": { "displayName": "promptlog" },
+  "plugins": [
+    {
+      "name": "promptlog",
+      "source": "./",
+      "description": "git-log style tree of your AI coding prompts, with optional commit linking",
+      "category": "Developer tools",
+      "policy": { "installation": "AVAILABLE" }
+    }
+  ]
+}

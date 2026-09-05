@@ -1,0 +1,11 @@
+{"type": "session_meta", "payload": {"id": "fixture-codex-simple", "cwd": "/x", "timestamp": "2026-09-02T10:00:00Z"}}
+{"timestamp": "2026-09-02T10:01:00Z", "type": "event_msg", "payload": {"type": "task_started", "turn_id": "t1"}}
+{"timestamp": "2026-09-02T10:01:01Z", "type": "event_msg", "payload": {"type": "user_message", "message": "first prompt"}}
+{"timestamp": "2026-09-02T10:01:02Z", "type": "event_msg", "payload": {"type": "agent_message", "message": "ok, done"}}
+{"timestamp": "2026-09-02T10:01:03Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 100, "cached_input_tokens": 10, "output_tokens": 50, "reasoning_output_tokens": 5, "total_tokens": 150}}}}
+{"timestamp": "2026-09-02T10:01:05Z", "type": "event_msg", "payload": {"type": "task_complete", "turn_id": "t1", "started_at": 1000, "completed_at": 1005}}
+{"timestamp": "2026-09-02T10:02:00Z", "type": "event_msg", "payload": {"type": "task_started", "turn_id": "t2"}}
+{"timestamp": "2026-09-02T10:02:01Z", "type": "event_msg", "payload": {"type": "user_message", "message": "second prompt"}}
+{"timestamp": "2026-09-02T10:02:02Z", "type": "event_msg", "payload": {"type": "agent_message", "message": "done again"}}
+{"timestamp": "2026-09-02T10:02:03Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 250, "cached_input_tokens": 20, "output_tokens": 120, "reasoning_output_tokens": 15, "total_tokens": 385}}}}
+{"timestamp": "2026-09-02T10:02:05Z", "type": "event_msg", "payload": {"type": "task_complete", "turn_id": "t2", "started_at": 1060, "completed_at": 1063}}
