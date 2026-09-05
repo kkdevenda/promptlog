@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { rmTree } from './helpers';
 
 const BIN = path.join(__dirname, '..', 'bin', 'promptlog.js');
 
@@ -78,7 +79,7 @@ describe('CLI', () => {
     if (!cursor) throw new Error('expected a cursor entry');
     expect(cursor.parseCapable).toBe(true); // Cursor gained an adapter in v0.3
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('doctor reports an outdated recorded copy and points at `promptlog skill update`', () => {
@@ -104,6 +105,6 @@ describe('CLI', () => {
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toMatch(/outdated.*promptlog skill update/);
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 });

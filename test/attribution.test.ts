@@ -36,6 +36,7 @@ import * as repoCmds from '../src/core/commands/repo';
 import * as gitmod from '../src/core/git';
 import * as sessionRecords from '../src/core/sessionRecords';
 import * as shellWrites from '../src/core/shellWrites';
+import { rmTree } from './helpers';
 
 const REPO = path.resolve(__dirname, '..');
 const PROMPTLOG = path.join(REPO, 'bin', 'promptlog.js');
@@ -386,7 +387,7 @@ describe('attribution', () => {
       expect(unattributed).toEqual({ 'file4.txt': 1 });
       for (const v of linked.values()) expect(v.files['file4.txt']).toBeUndefined();
     } finally {
-      fs.rmSync(s.home, { recursive: true, force: true });
+      rmTree(s.home);
     }
   });
 
@@ -410,7 +411,7 @@ describe('attribution', () => {
       }
       expect(unattributed).toEqual({ 'file4.txt': 1 });
     } finally {
-      fs.rmSync(s.home, { recursive: true, force: true });
+      rmTree(s.home);
     }
   });
 
@@ -446,7 +447,7 @@ describe('attribution', () => {
         {},
       );
     } finally {
-      fs.rmSync(s.home, { recursive: true, force: true });
+      rmTree(s.home);
     }
   });
 
@@ -524,7 +525,7 @@ describe('attribution', () => {
       expect(entry?.matched, 'every hunk of the file belongs to that Write').toBe(entry?.hunks);
       expect(unattributed).toEqual({});
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmTree(home);
     }
   });
 
@@ -676,7 +677,7 @@ describe('attribution', () => {
       });
       expect(unattributed).toEqual({});
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmTree(home);
     }
   });
 
@@ -812,7 +813,7 @@ describe('attribution', () => {
       expect(linked.size, 'a lone `}` is not evidence').toBe(0);
       expect(unattributed, 'and the hunk is reported, not assigned').toEqual({ 'brace.js': 1 });
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmTree(home);
     }
   });
 
@@ -898,7 +899,7 @@ describe('attribution', () => {
         confidence: 'write',
       });
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmTree(home);
     }
   });
 
@@ -1009,7 +1010,7 @@ describe('attribution', () => {
       expect(idx[0].commits).toEqual([sha1, sha2].sort());
       expect(idx[0].attributedFiles).toBe(2);
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmTree(home);
     }
   });
 
@@ -1046,7 +1047,7 @@ describe('attribution', () => {
       expect(rec.commits[0]?.role).toBe('committer');
       expect(rec.commits[0]?.files).toEqual({});
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmTree(home);
     }
   });
 
@@ -1102,7 +1103,7 @@ describe('attribution', () => {
       const kept = rebuilt.commits.find((e: { sha: string }) => e.sha === sha);
       expect(kept.files, 'evidence for a surviving sha is preserved').toEqual(keep);
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmTree(home);
     }
   });
 
@@ -1121,7 +1122,7 @@ describe('attribution', () => {
       ).toBe(false);
       expect(staged.includes('.gitattributes')).toBe(false);
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmTree(home);
     }
   });
 });

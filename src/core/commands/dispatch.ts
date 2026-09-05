@@ -8,7 +8,8 @@
  * Contract (DESIGN.md "Hooks"), same as the shell version:
  *   * promptlog's own work runs only when `git config --get promptlog.enabled`
  *     is true in this repo, and never at PROMPTLOG_DISPATCH_DEPTH >= 1;
- *   * it runs under a hard 2 s watchdog and its exit status is ignored;
+ *   * it runs under a hard watchdog (`OWN_WATCHDOG_MS`, platform-aware - see
+ *     that constant) and its exit status is ignored;
  *   * whatever hook was there before still runs, in order, and ITS status is
  *     ours;
  *   * stdin is read only for hooks that are actually defined to receive it -
@@ -39,7 +40,15 @@ const STDIN_HOOKS = new Set([
   'reference-transaction',
 ]);
 
-const OWN_WATCHDOG_MS = 2000;
+/**
+ * The outer guard around the whole `promptlog hook <name>` child (see
+ * `runOwnWork` below). Must stay comfortably above `git.HOOK_BUDGET_MS` -
+ * the shared budget that child itself is honoring (DESIGN.md "One budget for
+ * the whole commit") - or this watchdog would kill it before that budget
+ * ever runs out, which is a strictly worse failure (no amend, no trailers,
+ * nothing regenerated) than letting the budget itself decide when to stop.
+ */
+const OWN_WATCHDOG_MS = git.HOOK_BUDGET_MS + 1000;
 
 /**
  * Resolved, `realpath`'d (when it exists), win32-case-folded form of `p`
@@ -140,9 +149,9 @@ function runChained(
   return r.status ?? 0;
 }
 
-/** Run `promptlog hook <name> [args]` as a child of the same bundle, 2 s
- * watchdog, stderr filtered to promptlog's own `promptlog:`-prefixed lines,
- * status always ignored. */
+/** Run `promptlog hook <name> [args]` as a child of the same bundle, under
+ * `OWN_WATCHDOG_MS`, stderr filtered to promptlog's own `promptlog:`-prefixed
+ * lines, status always ignored. */
 function runOwnWork(
   hookName: string,
   hookArgs: string[],

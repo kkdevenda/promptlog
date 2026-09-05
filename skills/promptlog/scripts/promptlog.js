@@ -3029,6 +3029,7 @@ var import_node_child_process2 = require("node:child_process");
 var import_node_path17 = __toESM(require("node:path"));
 var TRAILER_KEY = "Prompt-Id";
 var EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+var HOOK_BUDGET_MS = process.platform === "win32" ? 6e3 : 2500;
 var deadlineAt = null;
 function setDeadline(epochMs) {
   deadlineAt = Number.isFinite(epochMs) ? epochMs : null;
@@ -3312,7 +3313,7 @@ var STDIN_HOOKS = /* @__PURE__ */ new Set([
   "pre-receive",
   "reference-transaction"
 ]);
-var OWN_WATCHDOG_MS = 2e3;
+var OWN_WATCHDOG_MS = HOOK_BUDGET_MS + 1e3;
 function canon(p) {
   return canonicalPath(p);
 }
@@ -6518,7 +6519,6 @@ function installHooks(dir, { renameExisting = false, chainDir = null } = {}) {
   }
   return installed;
 }
-var HOOK_BUDGET_MS = 2500;
 function deadlinePath(root) {
   return import_node_path28.default.join(gitDirOf(root), "promptlog-deadline");
 }

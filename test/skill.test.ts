@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { shimBody, shimDir, shimName } from '../src/core/commands/skill';
+import { rmTree } from './helpers';
 
 const BIN = path.join(__dirname, '..', 'bin', 'promptlog.js');
 
@@ -83,7 +84,7 @@ describe('CLI', () => {
       expect(entry.ts).toBeTruthy();
     }
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('skill install --path writes a shim', () => {
@@ -106,7 +107,7 @@ describe('CLI', () => {
     expect(fs.existsSync(shimPath)).toBeTruthy();
     const content = fs.readFileSync(shimPath, 'utf-8');
     expect(content).toMatch(process.platform === 'win32' ? /node/ : /exec node/);
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('the shim body and its location are platform-specific (`platform` is injectable)', () => {
@@ -155,7 +156,7 @@ describe('CLI', () => {
     const after = fs.readFileSync(marker, 'utf-8');
     expect(after).toBe(before);
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('skill update --dry-run: prints what would change and writes nothing', () => {
@@ -180,7 +181,7 @@ describe('CLI', () => {
     expect(fs.readFileSync(marker, 'utf-8')).not.toBe(before);
     expect(fs.readFileSync(recordPath, 'utf-8')).toBe(recordBefore);
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('skill update refreshes an external (unrecorded) user-scope copy by default', () => {
@@ -192,7 +193,7 @@ describe('CLI', () => {
     // promptlog skill dir our own record never wrote, sitting in Codex's
     // normal user-scope skill directory (so `skillDirs('user')` finds it).
     const externalDest = path.join(home, '.codex', 'skills', 'promptlog');
-    fs.rmSync(externalDest, { recursive: true, force: true });
+    rmTree(externalDest);
     fs.mkdirSync(path.join(externalDest, 'scripts'), { recursive: true });
     fs.writeFileSync(
       path.join(externalDest, 'SKILL.md'),
@@ -213,7 +214,7 @@ describe('CLI', () => {
     const md = fs.readFileSync(path.join(externalDest, 'SKILL.md'), 'utf-8');
     expect(md).not.toMatch(/external copy/);
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('skill update lists a plugin-cache copy as managed and leaves it untouched', () => {
@@ -243,7 +244,7 @@ describe('CLI', () => {
     expect(r.stdout).toMatch(/managed by \/plugin update promptlog in Claude Code/);
     expect(fs.readFileSync(path.join(pluginDest, 'SKILL.md'), 'utf-8')).toMatch(/plugin copy/);
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('skill uninstall: removes exactly the recorded paths', () => {
@@ -269,7 +270,7 @@ describe('CLI', () => {
     const record = JSON.parse(fs.readFileSync(recordPath, 'utf-8'));
     expect(record.installs).toEqual([]);
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('skill uninstall refuses a recorded path that is not a promptlog skill', () => {
@@ -285,7 +286,7 @@ describe('CLI', () => {
     expect(r.stderr).toMatch(/refusing to remove/);
     expect(fs.existsSync(claudeDest), 'the tampered directory must survive').toBeTruthy();
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('self-check runs during install (ok, not error)', () => {
@@ -293,7 +294,7 @@ describe('CLI', () => {
     const r = run(['skill', 'install'], { HOME: home });
     expect(r.status, r.stderr).toBe(0);
     expect(/error/.test(r.stdout), `expected no self-check errors, got:\n${r.stdout}`).toBeFalsy();
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('BLOCKER regression: install never destroys a pre-existing non-promptlog skill of the same name', () => {
@@ -320,7 +321,7 @@ describe('CLI', () => {
       expect(record.installs.some((i: { path: string }) => i.path === dest)).toBeFalsy();
     }
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('install is atomic and per-adapter: one adapter failing does not stop or corrupt the others', () => {
@@ -341,7 +342,7 @@ describe('CLI', () => {
     // no stray atomic-rename temp directories left behind
     expect(fs.existsSync(path.join(home, '.codex', 'skills', 'promptlog.new'))).toBeFalsy();
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 
   test('--project vendors the whole skill (scripts/ included, no .gitignore) so a fresh clone can run it with nothing preinstalled', () => {
@@ -428,10 +429,10 @@ describe('CLI', () => {
       ).toBeFalsy();
     }
 
-    fs.rmSync(home, { recursive: true, force: true });
-    fs.rmSync(emptyHome, { recursive: true, force: true });
-    fs.rmSync(projectDir, { recursive: true, force: true });
-    fs.rmSync(cloneParent, { recursive: true, force: true });
+    rmTree(home);
+    rmTree(emptyHome);
+    rmTree(projectDir);
+    rmTree(cloneParent);
   });
 
   test('doctor and uninstall detect externally-installed copies (not in our record) and uninstall refuses them without --all', () => {
@@ -464,6 +465,6 @@ describe('CLI', () => {
     expect(r.status, r.stderr).toBe(0);
     expect(fs.existsSync(externalDest), '--all must remove the external install too').toBeFalsy();
 
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   });
 });

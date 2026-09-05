@@ -7,6 +7,7 @@ import { slug } from '../src/agents/claude/locate';
 import { Turn } from '../src/core/model';
 import * as sessionRecords from '../src/core/sessionRecords';
 import * as store from '../src/core/store';
+import { rmTree } from './helpers';
 
 const BIN = path.join(__dirname, '..', 'bin', 'promptlog.js');
 const FIXTURE = path.join(__dirname, 'fixtures', 'claude', 'branch.jsonl');
@@ -71,8 +72,8 @@ describe('sessions', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-sess-home-'));
     const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pl-sess-cwd-')));
     cleanups.push(() => {
-      fs.rmSync(home, { recursive: true, force: true });
-      fs.rmSync(cwd, { recursive: true, force: true });
+      rmTree(home);
+      rmTree(cwd);
     });
 
     const sessionId = '0f0f0f0f-1111-4222-8333-444455556666';
@@ -222,8 +223,8 @@ describe('sessions', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-sess-home-'));
     const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pl-sess-cwd-')));
     cleanups.push(() => {
-      fs.rmSync(home, { recursive: true, force: true });
-      fs.rmSync(cwd, { recursive: true, force: true });
+      rmTree(home);
+      rmTree(cwd);
     });
 
     const claudeId = '0f0f0f0f-1111-4222-8333-444455556666';
@@ -328,8 +329,8 @@ test('show/grep/files fall back to the repo store when no live transcript exists
     expect(rt.status).toBe(1);
     expect(rt.stderr).toContain('no session found');
   } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-    fs.rmSync(repo, { recursive: true, force: true });
+    rmTree(home);
+    rmTree(repo);
   }
 });
 
@@ -411,6 +412,6 @@ test('review is a read-only preview: it never creates .promptlog', () => {
     expect(fs.existsSync(path.join(dir, '.promptlog'))).toBe(false);
     expect(r.status).not.toBeNull();
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmTree(dir);
   }
 });

@@ -9,7 +9,7 @@ import * as renderReadmeMod from '../src/core/renderReadme';
 import * as sessionRecords from '../src/core/sessionRecords';
 import * as store from '../src/core/store';
 import * as storeIndex from '../src/core/storeIndex';
-import { tmpDir } from './helpers';
+import { rmTree, tmpDir } from './helpers';
 
 // Assembled at runtime so no key-shaped literal sits in the repo (GitHub push protection).
 const AWS_KEY = `AKIA${'IOSFODNN7EXAMPLE'}`;
@@ -114,7 +114,7 @@ test('ensureConfig creates config.json with the documented defaults', () => {
   const back = store.readConfig(root);
   expect(back.notes).toBe(true);
   expect(back.readme).toBe(true); // missing key filled from defaults
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('a session document matches the documented schema and hashes the ORIGINAL text', () => {
@@ -152,7 +152,7 @@ test('a session document matches the documented schema and hashes the ORIGINAL t
   expect(rec.origin.promptHash).toBe(sha('add a repo store'));
   expect(rec.origin.responseHash).toBe(sha('done.'));
   expect(rec.origin.uuid).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('upsert unions commit entries and never loses an earlier sha', () => {
@@ -186,7 +186,7 @@ test('upsert unions commit entries and never loses an earlier sha', () => {
   const c = rec.commits.find((e) => e.sha === 'c'.repeat(40));
   expect(c?.role).toBe('both');
   expect(c?.files).toEqual({ 'lib/store.js': { hunks: 2, matched: 2, confidence: 'edit' } });
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('a contributor turn that also committed is recorded as both, once', () => {
@@ -207,7 +207,7 @@ test('a contributor turn that also committed is recorded as both, once', () => {
   expect(rec.commits.length).toBe(1); // one entry per sha
   expect(rec.commits[0]?.role).toBe('both');
   expect(Object.keys(rec.commits[0]?.files ?? {})).toEqual(['a.js']); // evidence survives the role merge
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('upsert backfills a pending response and keeps everything else fresh', () => {
@@ -231,7 +231,7 @@ test('upsert backfills a pending response and keeps everything else fresh', () =
   rec = sessionRecords.readSessionDoc(root, 'claude', SID)?.turns[GID];
   if (!rec) throw new Error('expected a record');
   expect(rec.response).toBe('all done'); // a stored response is never dropped
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('remapCommits rewrites shas for post-rewrite', () => {
@@ -241,7 +241,7 @@ test('remapCommits rewrites shas for post-rewrite', () => {
   const rec = sessionRecords.readSessionDoc(root, 'claude', SID)?.turns[GID];
   if (!rec) throw new Error('expected a record');
   expect(sessionRecords.commitShas(rec)).toEqual(['f'.repeat(40)]);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('writeAtomic leaves no partial file and no stray tmp files', () => {
@@ -262,7 +262,7 @@ test('writeAtomic leaves no partial file and no stray tmp files', () => {
   fs.writeFileSync(blocker, 'not a directory');
   expect(() => store.writeAtomic(path.join(blocker, 'x.json'), 'x')).toThrow();
   expect(fs.readFileSync(target, 'utf8')).toBe('{"a":2}\n'); // the earlier write survives
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('reindex regenerates index.jsonl from the session documents', () => {
@@ -316,7 +316,7 @@ test('reindex regenerates index.jsonl from the session documents', () => {
   fs.writeFileSync(store.indexPath(root), 'garbage\n');
   storeIndex.reindex(root);
   expect(fs.readFileSync(store.indexPath(root), 'utf8').trim().split('\n').length).toBe(3);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('index.jsonl header freshness: fresh right after reindex, stale once a session doc changes', () => {
@@ -337,7 +337,7 @@ test('index.jsonl header freshness: fresh right after reindex, stale once a sess
   // A missing/corrupt index is never "fresh".
   fs.writeFileSync(store.indexPath(root), 'not json at all\n');
   expect(storeIndex.indexIsFresh(root)).toBe(false);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('renderReadme writes a mermaid gitGraph and a markdown table', () => {
@@ -374,7 +374,7 @@ test('renderReadme writes a mermaid gitGraph and a markdown table', () => {
   // No homepage in package.json -> plain text, never a bare placeholder URL.
   expect(text).not.toMatch(/\(https:\/\/github\.com\/\)/);
   expect(fs.existsSync(store.readmePath(root))).toBeTruthy();
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('renderReadme tags a single commit in the singular and omits zero', () => {
@@ -385,7 +385,7 @@ test('renderReadme tags a single commit in the singular and omits zero', () => {
   expect(text).toMatch(/commit id: "aaa1111" tag: "[^"]*1 commit"/);
   const bbbLine = text.split('\n').find((l) => l.includes('"bbb2222"')) ?? '';
   expect(bbbLine).not.toMatch(/\d+ commits?"/); // no commit count when there are none
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('initStore registers the session/README merge drivers exactly once and never the old union line', () => {
@@ -402,7 +402,7 @@ test('initStore registers the session/README merge drivers exactly once and neve
   // .promptlog/.gitignore keeps the index out of git entirely.
   const gi = fs.readFileSync(path.join(root, '.promptlog', '.gitignore'), 'utf8');
   expect(gi.split('\n').filter((l) => l.trim() === 'index.jsonl').length).toBe(1);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('ensureGitattributes migrates away a pre-v0.3 merge=union line', () => {
@@ -418,7 +418,7 @@ test('ensureGitattributes migrates away a pre-v0.3 merge=union line', () => {
   expect(text).toMatch(/some\/other\.file text/); // unrelated lines are preserved
   expect(text).toMatch(new RegExp(store.SESSIONS_MERGE_LINE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   expect(text).toMatch(new RegExp(store.README_MERGE_LINE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('homeCollapse / homeExpand round-trip', () => {
@@ -447,7 +447,7 @@ test('README and index sanitise cell-breaking prompt text', () => {
   expect(row.replace(/\\\|/g, '').split('|').length - 1).toBe(7); // six columns
   expect(row).toMatch(/fix a \\\| b in the table/); // backticks stripped, pipe escaped
   expect(row).not.toMatch(/second line/); // only the first line is used
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('firstLine leaves no trailing whitespace after truncation', () => {
@@ -488,7 +488,7 @@ test('redaction fails CLOSED: a throwing redactor writes nothing', () => {
   if (!rec) throw new Error('expected a record');
   expect(rec.prompt).not.toMatch(new RegExp(AWS_KEY));
   expect(rec.prompt).toMatch(/\[redacted:/);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('remapCommits prefix matching is one-directional and needs 7+ chars', () => {
@@ -515,7 +515,7 @@ test('remapCommits prefix matching is one-directional and needs 7+ chars', () =>
   expect(sessionRecords.commitShas(sessionRecords.readSessionDoc(root, 'claude', SID)?.turns[GID])).toEqual([
     'd'.repeat(40),
   ]);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('withLock serialises mutations and breaks a stale lock', () => {
@@ -543,7 +543,7 @@ test('withLock serialises mutations and breaks a stale lock', () => {
   expect(ran2).toBeTruthy(); // stale lock broken
   expect(Date.now() - t0 < 1500).toBeTruthy(); // did not wait out the full timeout
   expect(fs.existsSync(lock)).toBeFalsy();
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('an out-of-repo absolute file path is home-collapsed and redacted', () => {
@@ -566,7 +566,7 @@ test('an out-of-repo absolute file path is home-collapsed and redacted', () => {
   expect(collapsed).not.toMatch(new RegExp(AWS_KEY));
   expect(collapsed).toMatch(/\[redacted:aws-key:[0-9a-f]{4}\]/);
   expect(rec.redactions.some((f) => f.kind === 'aws-key')).toBeTruthy(); // and the finding is recorded
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('homeCollapse handles a realpath-different home (macOS /private/var)', () => {
@@ -595,7 +595,7 @@ test('sessionsFingerprint changes when a document changes without changing size'
   fs.utimesSync(file, st.atime, st.mtime);
   expect(fs.statSync(file).size).toBe(st.size); // same byte count
   expect(storeIndex.sessionsFingerprint(root)).not.toBe(before); // the fingerprint must notice
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 test('initStore gitignores the index, the cache dir and atomic-write temp files', () => {
@@ -617,5 +617,5 @@ test('initStore gitignores the index, the cache dir and atomic-write temp files'
     .map((l) => l.trim())
     .filter(Boolean);
   expect(again).toEqual(lines);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });

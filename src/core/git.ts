@@ -23,7 +23,17 @@ export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
  * that would let it outlive the budget: three hooks x 2 s each would
  * otherwise add six seconds to a commit, and a stuck child would sit there
  * for all of it.
+ *
+ * The budget itself is platform-aware: every git spawn costs several hundred
+ * ms more on Windows than elsewhere, so the POSIX budget (2.5 s) was
+ * routinely exhausted by the time `post-commit` ran, silently skipping
+ * `promptlog.amend`'s amend step there. The single constant is used
+ * everywhere the budget appears - `hooks.ts`'s `openBudget`, and
+ * `dispatch.ts`'s own watchdog around the whole `promptlog hook <name>`
+ * child, which must stay longer than this or it would kill that child before
+ * the budget it is honoring even runs out.
  */
+export const HOOK_BUDGET_MS = process.platform === 'win32' ? 6000 : 2500;
 let deadlineAt: number | null = null;
 
 export function setDeadline(epochMs: number): void {

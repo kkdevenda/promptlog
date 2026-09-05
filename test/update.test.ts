@@ -11,6 +11,7 @@ import { Readable } from 'node:stream';
 import { describe, expect, test } from 'vitest';
 import { slug } from '../src/agents/claude/locate';
 import * as updateCheck from '../src/core/updateCheck';
+import { rmTree } from './helpers';
 
 const BIN = path.join(__dirname, '..', 'bin', 'promptlog.js');
 
@@ -19,7 +20,7 @@ function makeHome(): string {
 }
 
 function cleanup(home: string): void {
-  fs.rmSync(home, { recursive: true, force: true });
+  rmTree(home);
 }
 
 function writeCache(home: string, data: unknown): void {
@@ -501,7 +502,7 @@ describe('CLI', () => {
         .join('\n')}\n`,
     );
     const se = spawnSync(process.execPath, [BIN, 'sessions', '--json'], { encoding: 'utf-8', env, cwd });
-    fs.rmSync(cwd, { recursive: true, force: true });
+    rmTree(cwd);
     expect(se.status, se.stderr).toBe(0);
     const list = JSON.parse(se.stdout);
     expect(Array.isArray(list) && list.length === 1, se.stdout).toBeTruthy();

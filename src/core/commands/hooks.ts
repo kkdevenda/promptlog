@@ -279,9 +279,9 @@ export function installHooks(
  * writes `$GIT_DIR/promptlog-deadline`; the later hooks read it and work
  * with whatever is left; post-commit / post-rewrite remove it. While it is
  * set, `git.ts` clamps every child process timeout to the remainder, so a
- * stuck `git` cannot outlive the budget either.
+ * stuck `git` cannot outlive the budget either. The value itself
+ * (`git.HOOK_BUDGET_MS`) is platform-aware - see that constant's comment.
  */
-const HOOK_BUDGET_MS = 2500;
 
 function deadlinePath(root: string): string {
   return path.join(gitDirOf(root), 'promptlog-deadline');
@@ -366,7 +366,7 @@ function openBudget(root: string, { create = false }: { create?: boolean } = {})
     at = null;
   }
   if (at == null) {
-    at = Date.now() + HOOK_BUDGET_MS;
+    at = Date.now() + git.HOOK_BUDGET_MS;
     if (create) {
       try {
         fs.writeFileSync(file, String(at), 'utf8');

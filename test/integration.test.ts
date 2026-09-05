@@ -26,7 +26,7 @@ import type { SessionDoc, TurnRecord } from '../src/core/records';
 import type { IndexHeader } from '../src/core/storeIndex';
 import * as storeIndex from '../src/core/storeIndex';
 import type { Ctx } from '../src/core/util';
-import { diag, tmpDir } from './helpers';
+import { diag, rmTree, tmpDir } from './helpers';
 
 const REPO = path.resolve(__dirname, '..');
 const PROMPTLOG = path.join(REPO, 'bin', 'promptlog.js');
@@ -344,7 +344,7 @@ async function showSha(env: NodeJS.ProcessEnv, repoDir: string, sha: string): Pr
 
 test('per-repo install: commit, trailers, records, README, amend remap, chaining', async () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -537,7 +537,7 @@ test('per-repo install: commit, trailers, records, README, amend remap, chaining
 
 test('global install: --global sandboxes to a temp HOME and hooks still fire', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -589,7 +589,7 @@ test('global install: --global sandboxes to a temp HOME and hooks still fire', (
 
 test('disable stops the hooks writing anything', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -605,7 +605,7 @@ test('disable stops the hooks writing anything', () => {
 
 test('sync / trailers / reindex / review work without committing', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -639,7 +639,7 @@ test('sync / trailers / reindex / review work without committing', () => {
 
 test('dispatcher runs once with a relative core.hooksPath, and the depth guard stops re-entry', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -689,7 +689,7 @@ test.skipIf(process.platform === 'win32')(
     // `/bin/sh` does not exist on win32 at all: there is no portable way to
     // build the named-pipe timing rig this test needs there.
     const { home, repoDir, env } = sandbox();
-    onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+    onTestFinished(() => rmTree(home));
 
     writeTranscript(home, repoDir);
     gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -731,7 +731,7 @@ test.skipIf(process.platform === 'win32')(
 
 test('re-running init rotates, never deletes, a hook installed after us', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -773,7 +773,7 @@ test('re-running init rotates, never deletes, a hook installed after us', () => 
 
 test('an OLD sh dispatcher is rotated/overwritten correctly on re-init', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -816,7 +816,7 @@ test('an OLD sh dispatcher is rotated/overwritten correctly on re-init', () => {
 
 test('promptlog.amend=true leaves no stale sha behind', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -825,13 +825,20 @@ test('promptlog.amend=true leaves no stale sha behind', () => {
 
   fs.writeFileSync(path.join(repoDir, 'a.txt'), 'a\n', 'utf8');
   gitOk(env, repoDir, ['add', 'a.txt', '.gitattributes']);
-  gitOk(env, repoDir, ['commit', '-q', '-m', 'amend mode']);
+  // Not gitOk: the post-commit hook's `promptlog:` stderr lines are the one
+  // thing that can say WHY the amend below did not happen (e.g. the hook
+  // budget ran out before it got there), and git itself still exits 0
+  // whatever that hook did (promptlog fails open) - so capture them here
+  // rather than losing them to a passing exit-code assertion.
+  const commit = git(env, repoDir, ['commit', '-q', '-m', 'amend mode']);
+  expect(commit.code, `git commit failed (cwd=${repoDir}): ${commit.stderr}`).toBe(0);
 
   const head = gitOk(env, repoDir, ['rev-parse', 'HEAD']).trim();
   for (const [gid, rec] of Object.entries(sessionDoc(repoDir).turns)) {
     expect(
       shas(rec),
-      `${gid} must point at the amended HEAD, not the pre-amend sha: ${JSON.stringify(rec.commits)}`,
+      `${gid} must point at the amended HEAD, not the pre-amend sha: ${JSON.stringify(rec.commits)}\n` +
+        `post-commit hook stderr:\n${commit.stderr}`,
     ).toEqual([head]);
   }
   // The index agrees, and every recorded sha is a real commit.
@@ -844,7 +851,7 @@ test('promptlog.amend=true leaves no stale sha behind', () => {
 
 test('a pending gid list never leaks into another commit', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -875,7 +882,7 @@ test('a pending gid list never leaks into another commit', () => {
 
 test('amend widens the window instead of emptying it', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -936,7 +943,7 @@ test('amend widens the window instead of emptying it', () => {
 
 test('pathspec commits are skipped and an aborted commit is carried into the next one', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -986,7 +993,7 @@ test('pathspec commits are skipped and an aborted commit is carried into the nex
 
 test('records orphaned by an aborted FIRST commit are carried into the next one', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1099,7 +1106,7 @@ function writeActiveTranscript(
 
 test('rapid successive commits all carry the active turn (env-identified session)', async () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   const { file, base, gidSuffix } = writeActiveTranscript(home, repoDir, { otherCheckout: home });
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1201,7 +1208,7 @@ test('rapid successive commits all carry the active turn (env-identified session
 
 test('a pathspec commit leaves .promptlog untouched, even with a stale pending file', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1259,7 +1266,7 @@ test('a pathspec commit leaves .promptlog untouched, even with a stale pending f
 
 test('git commit -am gets its trailers (index.lock is not a partial commit)', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1293,7 +1300,7 @@ test('git commit -am gets its trailers (index.lock is not a partial commit)', ()
 
 test("a commit never stages the user's own .gitattributes edits", () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1326,7 +1333,7 @@ test("a commit never stages the user's own .gitattributes edits", () => {
 
 test('the trailer scan is cached and stays correct across a rewrite', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1415,7 +1422,7 @@ function commitFile(env: NodeJS.ProcessEnv, repoDir: string, name: string, subje
 
 test('a checkout path with an apostrophe, a space and a non-ASCII char still yields valid, working hooks', () => {
   const { home, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   // The baked entry point is promptlog's OWN entry point, so the checkout
   // itself has to live at the awkward path: copy the zero-dependency tree
@@ -1486,7 +1493,7 @@ test('a checkout path with an apostrophe, a space and a non-ASCII char still yie
 
 test('doctor warns when a hook file’s baked promptlog.js path is missing', async () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1539,7 +1546,7 @@ test('generated hook body: an empty PATH still fails open, warns once, exits 0',
 
 test('a dispatcher whose baked promptlog.js no longer exists still lets the commit through', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1585,7 +1592,7 @@ test('a dispatcher whose baked promptlog.js no longer exists still lets the comm
 
 test('local init under a LOCAL relative core.hooksPath takes it over and chains the previous hooks once', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1632,7 +1639,7 @@ test('local init under a LOCAL relative core.hooksPath takes it over and chains 
 
 test('local init under a GLOBAL absolute core.hooksPath chains it and leaves the global config alone', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1663,7 +1670,7 @@ test('local init under a GLOBAL absolute core.hooksPath chains it and leaves the
 
 test('init --global with an existing global core.hooksPath chains it rather than clobbering it', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
@@ -1724,7 +1731,7 @@ test('init --global with an existing global core.hooksPath chains it rather than
 
 test('husky-shaped hooksPath (.husky/_) runs the husky hook exactly once per commit', () => {
   const { home, repoDir, env } = sandbox();
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => rmTree(home));
 
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);

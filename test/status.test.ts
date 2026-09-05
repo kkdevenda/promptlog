@@ -15,6 +15,7 @@ import { slug } from '../src/agents/claude/locate';
 import { parseClaudeSession } from '../src/agents/claude/parser';
 import { renderStatus, statusStats } from '../src/core/renderStatus';
 import { Colors } from '../src/core/util';
+import { rmTree } from './helpers';
 
 const REPO = path.resolve(__dirname, '..');
 const PROMPTLOG = path.join(REPO, 'bin', 'promptlog.js');
@@ -96,7 +97,7 @@ test('statusline: synthetic Claude statusLine JSON resolves the fixture transcri
     const expected = renderStatus(loadBranchSession(), { colors: new Colors(false) });
     expect(res.stdout.trim()).toBe(expected);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    rmTree(tmp);
   }
 });
 
@@ -122,7 +123,7 @@ test('statusline: input no adapter recognises (no session_id) falls back to newe
     const expected = renderStatus(loadBranchSession(), { colors: new Colors(false) });
     expect(res.stdout.trim()).toBe(expected);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    rmTree(tmp);
   }
 });
 
@@ -139,6 +140,6 @@ test('statusline: garbage stdin never throws, prints nothing, exits 0', () => {
     expect(res.stdout).toBe('');
     expect(res.stderr).toBe('');
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    rmTree(tmp);
   }
 });

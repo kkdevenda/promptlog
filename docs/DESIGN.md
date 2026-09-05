@@ -745,8 +745,9 @@ otherwise the sha lands in the next commit, which is acceptable and documented;
 when it does amend, the old->new sha is remapped in-process, because
 `post-rewrite` for our own nested git call is suppressed by the depth guard),
 `post-rewrite` (map old->new shas from stdin across all session docs and the
-index). Every hook: hard 2 s timeout (`timeout` via child process kill),
-fail-open, one-line stderr warning on error, never touches the network.
+index). Every hook: hard watchdog timeout (`timeout` via child process kill;
+platform-aware, see "One budget for the whole commit" below), fail-open,
+one-line stderr warning on error, never touches the network.
 
 `pre-commit` exists because **`git add` from `prepare-commit-msg` does not
 affect the commit**: git has already read the index by the time that hook runs,
@@ -767,11 +768,16 @@ commit they did not ask to include it in.
 #### One budget for the whole commit
 
 Three hooks x 2 s each would add six seconds to a commit. Instead `pre-commit`
-writes `$GIT_DIR/promptlog-deadline` (epoch ms + 2500) and the later hooks read
-it and use only the remainder; `post-commit` and `post-rewrite` remove it. Every
-child `git` process is given a timeout clamped to that remainder, so a stuck
-child cannot outlive the budget either. The dispatcher's 2 s watchdog stays as
-the outer guard.
+writes `$GIT_DIR/promptlog-deadline` (epoch ms + `HOOK_BUDGET_MS`) and the
+later hooks read it and use only the remainder; `post-commit` and
+`post-rewrite` remove it. Every child `git` process is given a timeout
+clamped to that remainder, so a stuck child cannot outlive the budget either.
+`HOOK_BUDGET_MS` is platform-aware: 2500 ms everywhere except Windows, where
+every git spawn costs several hundred ms more and 2500 ms was routinely gone
+by `post-commit` - silently skipping `promptlog.amend`'s amend step - so
+Windows gets 6000 ms. The dispatcher's own watchdog stays as the outer guard,
+and is always `HOOK_BUDGET_MS` plus a margin so it cannot fire before the
+budget it wraps does.
 
 #### Commits promptlog stays out of
 

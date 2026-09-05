@@ -22,6 +22,21 @@ export function tmpDir(prefix: string, parent: string = os.tmpdir()): string {
 }
 
 /**
+ * The one way every test should remove a temp directory tree.
+ *
+ * On Windows, a just-exited child process (git, a spawned `promptlog`) can
+ * still hold a file in the tree open for a few milliseconds after
+ * `spawnSync` returns - antivirus scanners and the indexer pile on top of
+ * that - so a bare `fs.rmSync(dir, { recursive: true, force: true })` in
+ * `onTestFinished` intermittently throws `EBUSY: resource busy or locked,
+ * rmdir`. `maxRetries`/`retryDelay` give those handles a moment to let go
+ * before giving up.
+ */
+export function rmTree(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
+/**
  * Diagnostics for a hook/integration assertion that can fail for a reason
  * the assertion itself does not say: the generated hook files' content and
  * the `.git/hooks` directory listing. Appended to an `expect(..., message)`

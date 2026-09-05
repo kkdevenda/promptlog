@@ -11,7 +11,7 @@ import * as attribution from '../src/core/attribution';
 import * as initCmds from '../src/core/commands/init';
 import * as repoCmds from '../src/core/commands/repo';
 import * as git from '../src/core/git';
-import { tmpDir } from './helpers';
+import { rmTree, tmpDir } from './helpers';
 
 const S = 1000000; // one second in micros
 
@@ -163,7 +163,7 @@ test('stagedHunks / stagedBlobHash read the index, with and without a HEAD', () 
   hunks = git.stagedHunks(dir);
   expect(hunks.get('a.txt')?.[0]?.added, 'only the new line is a hunk at -U0').toEqual(['three']);
   expect(git.stagedBlobHash(dir, 'nope.txt')).toBeNull();
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTree(dir);
 });
 
 test('parseAllPromptIds scans the whole body, not just the trailer block', () => {
@@ -236,7 +236,7 @@ test('headCommitTime / stagedFiles / isEnabled against a real repo', () => {
   ]);
   expect(git.commitFiles(dir, sha as string)).toEqual(['a.txt']);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTree(dir);
 });
 
 test('appendTrailers separates the block even when the subject looks like a trailer', () => {
@@ -346,7 +346,7 @@ test('activeLastFor: env-identified sessions are always active, otherwise mtime 
 
   // An unreadable transcript is not claimed to be active.
   expect(repoCmds.activeLastFor({ how: 'newest-for-cwd', path: path.join(dir, 'nope') }, 1 * S)).toBe(false);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTree(dir);
 });
 
 test('candidateSessions narrows to the named agent, symmetrically', () => {
@@ -389,7 +389,7 @@ test('candidateSessions narrows to the named agent, symmetrically', () => {
     expect(repoCmds.narrowedAgentIds('claude')).toEqual(['claude']);
     expect(repoCmds.narrowedAgentIds('auto').length >= 2, 'auto considers every adapter').toBeTruthy();
   } finally {
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   }
 });
 
@@ -462,7 +462,7 @@ test('isPartialCommit: index.lock is the real index, a temp index is not', () =>
   expect(check('.git/index.lock'), 'relative to the repo root, too').toBe(false);
   // A pathspec commit builds a genuinely separate index.
   expect(check(path.join(gitDir, 'next-index-12345.lock'))).toBe(true);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTree(dir);
 });
 
 test('merge-driver leaves the conflict when an input is not a session document', async () => {
@@ -540,5 +540,5 @@ test('merge-driver leaves the conflict when an input is not a session document',
   expect(r.code, r.text).toBe(1);
   expect(fs.readFileSync(ours6, 'utf8')).toBe('[1,2,3]');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTree(dir);
 });

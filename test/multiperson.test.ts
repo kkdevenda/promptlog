@@ -24,7 +24,7 @@ import { expect, test } from 'vitest';
 import { slug } from '../src/agents/claude/locate';
 import * as merge from '../src/core/merge';
 import type { SessionDoc, TurnRecord } from '../src/core/records';
-import { tmpDir } from './helpers';
+import { rmTree, tmpDir } from './helpers';
 
 const REPO = path.resolve(__dirname, '..');
 const PROMPTLOG = path.join(REPO, 'bin', 'promptlog.js');
@@ -238,9 +238,9 @@ test('two clones of one origin: independent sessions push/pull with no conflict,
     const freshHeader = readIndexHeader(repoA);
     expect(freshHeader.head).toBe(newHead); // rebuilt by `show` to match the new HEAD
   } finally {
-    fs.rmSync(seed.home, { recursive: true, force: true });
-    fs.rmSync(a.home, { recursive: true, force: true });
-    fs.rmSync(b.home, { recursive: true, force: true });
+    rmTree(seed.home);
+    rmTree(a.home);
+    rmTree(b.home);
   }
 });
 
@@ -314,7 +314,7 @@ test('the same session committed on two branches merges via the driver, unioning
     expect(new Set(shas(mergedRec)).size).toBe(shas(mergedRec).length);
     expect(roleOf(mergedRec, shaFeature)).toBe('committer'); // driver kept feature's real evidence
   } finally {
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   }
 });
 
@@ -447,7 +447,7 @@ test('a squash merge folds trailers into the commit body; reindex still attribut
     expect(shas(rec).includes(shaSquash)).toBeTruthy();
     expect(!shas(rec).includes(shaOne) && !shas(rec).includes(shaTwo)).toBeTruthy();
   } finally {
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   }
 });
 
@@ -476,6 +476,6 @@ test('index.jsonl is never tracked after init, across several commits', () => {
     }
     expect(fs.existsSync(path.join(repoDir, '.promptlog', 'index.jsonl'))).toBeTruthy();
   } finally {
-    fs.rmSync(home, { recursive: true, force: true });
+    rmTree(home);
   }
 });
