@@ -1,16 +1,16 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { parseClaudeSession } from '../src/agents/claude/parser';
 import { parseCodexSession } from '../src/agents/codex/parser';
+import { tmpDir as sharedTmpDir } from './helpers';
 
 function writeJsonl(filePath: string, records: unknown[]): void {
   fs.writeFileSync(filePath, `${records.map((r) => JSON.stringify(r)).join('\n')}\n`, 'utf-8');
 }
 
 function tmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'promptlog-test-'));
+  return sharedTmpDir('promptlog-test-');
 }
 
 function userRec(

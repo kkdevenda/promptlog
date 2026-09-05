@@ -5,7 +5,6 @@
  * from agents/ or attribution.ts, so nothing here can be part of a cycle.
  */
 
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -231,47 +230,19 @@ export function parseShellWrites(command: string | null | undefined): string[] {
 
 // --------------------------------------------------------------- file paths
 
-function realpathSafe(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
-}
-
-/** realpath of the longest existing prefix, with the rest appended. */
-function realpathish(p: string): string {
-  let dir = p;
-  const tail: string[] = [];
-  for (let i = 0; i < 40; i += 1) {
-    if (fs.existsSync(dir)) return path.join(realpathSafe(dir), ...tail.reverse());
-    const parent = path.dirname(dir);
-    if (parent === dir) return p;
-    tail.push(path.basename(dir));
-    dir = parent;
-  }
-  return p;
-}
-
 /**
  * `abs` as a repo-relative, forward-slash path, or null when it is outside
  * `root`.
  *
- * Compared through `realpath` on the way out, because an agent records the cwd
- * it was given while git reports the resolved one: on macOS a session in
- * `/var/folders/...` and a repo root of `/private/var/folders/...` are the same
- * directory, and a plain `path.relative` would call every edit foreign.
+ * `toRepoRel` itself canonicalises both sides (`fsutil.canonicalPath`)
+ * before comparing, so a `realpath`-only difference between them - an agent
+ * recording the cwd it was given while git reports the resolved one, e.g. on
+ * macOS a session in `/var/folders/...` vs. a repo root of
+ * `/private/var/folders/...` - can't call a genuinely-inside edit foreign.
  */
 export function relativeTo(root: string | null | undefined, abs: string): string | null {
   if (!root) return null;
-  const inside = (rel: string) => rel && !rel.startsWith('..') && !path.isAbsolute(rel);
-  const direct = path.relative(root, abs);
-  if (inside(direct)) return toRepoRel(root, abs);
-  const realRoot = realpathSafe(root);
-  const realAbs = realpathish(abs);
-  const alt = path.relative(realRoot, realAbs);
-  if (inside(alt)) return toRepoRel(realRoot, realAbs);
-  return null;
+  return toRepoRel(root, abs);
 }
 
 export interface LocatedFile {

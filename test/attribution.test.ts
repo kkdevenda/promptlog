@@ -36,7 +36,7 @@ import * as repoCmds from '../src/core/commands/repo';
 import * as gitmod from '../src/core/git';
 import * as sessionRecords from '../src/core/sessionRecords';
 import * as shellWrites from '../src/core/shellWrites';
-import { rmTree } from './helpers';
+import { rmTree, tmpDir } from './helpers';
 
 const REPO = path.resolve(__dirname, '..');
 const PROMPTLOG = path.join(REPO, 'bin', 'promptlog.js');
@@ -58,8 +58,8 @@ function iso(offsetMs: number): string {
 const AHEAD = 600000;
 
 function sandbox(): { home: string; repoDir: string; env: NodeJS.ProcessEnv } {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'promptlog-attr-')));
-  const repoDir = fs.realpathSync(fs.mkdtempSync(path.join(home, 'repo-')));
+  const home = tmpDir('promptlog-attr-');
+  const repoDir = tmpDir('repo-', home);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,

@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { cursor } from '../src/agents/cursor';
@@ -7,11 +6,12 @@ import { edits as cursorEdits } from '../src/agents/cursor/edits';
 import * as locate from '../src/agents/cursor/locate';
 import { isPromptRecord, parseCursorSession, parseCursorTimestampText } from '../src/agents/cursor/parser';
 import type { Session } from '../src/core/model';
+import { tmpDir as sharedTmpDir } from './helpers';
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'cursor');
 
 function tmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'promptlog-cursor-test-'));
+  return sharedTmpDir('promptlog-cursor-test-');
 }
 
 function writeJsonl(filePath: string, records: unknown[]): void {

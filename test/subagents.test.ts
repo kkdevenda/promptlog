@@ -16,7 +16,6 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { claude } from '../src/agents/claude';
@@ -26,11 +25,12 @@ import { zeroSubagents } from '../src/core/model';
 import { renderStatus, statusStats } from '../src/core/renderStatus';
 import { renderLast, renderTree } from '../src/core/renderTree';
 import { attachSubagents, totalsWithSubagents } from '../src/core/subagents';
+import { tmpDir as sharedTmpDir } from './helpers';
 
 const FIELDS = ['output', 'input', 'cacheRead', 'cacheWrite', 'thinking'] as const;
 
 function tmpdir(name: string): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `promptlog-${name}-`));
+  return sharedTmpDir(`promptlog-${name}-`);
 }
 
 interface Usage {

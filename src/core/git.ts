@@ -379,7 +379,7 @@ export function normalizeRepoPath(p: string | null | undefined, root: string | n
   if (!s) return '';
   if (path.isAbsolute(s) && root) {
     const rel = toRepoRel(root, s);
-    if (rel && !rel.startsWith('..')) s = rel;
+    if (rel) s = rel;
   }
   return s.split(path.sep).join('/').replace(/^\.\//, '');
 }

@@ -1,14 +1,14 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { codex } from '../src/agents/codex';
 import { edits as codexEdits, parseV4A } from '../src/agents/codex/edits';
+import { tmpDir as sharedTmpDir } from './helpers';
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'codex');
 
 function tmpDir(name: string): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `promptlog-${name}-`));
+  return sharedTmpDir(`promptlog-${name}-`);
 }
 
 describe('codex edits(): apply_patch hunks, add/delete/move, and shell writes', () => {

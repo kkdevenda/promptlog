@@ -1,13 +1,13 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { slug } from '../src/agents/claude/locate';
 import { findGitRoot } from '../src/core/fsutil';
 import { listCandidateSessions, resolveSession } from '../src/core/session';
+import { tmpDir as sharedTmpDir } from './helpers';
 
 function tmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'promptlog-session-test-'));
+  return sharedTmpDir('promptlog-session-test-');
 }
 
 function writeJsonl(filePath: string, records: unknown[]): void {

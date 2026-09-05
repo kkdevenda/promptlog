@@ -15,9 +15,21 @@ import type { JsonRecord } from './model';
  * be compared as text against what git itself prints. The one place this
  * conversion happens; every repo-relative path in the codebase goes through
  * it rather than repeating `path.relative(...).split(path.sep).join('/')`.
+ *
+ * Both sides are canonicalised with `canonicalPath` first (defined below)
+ * before the comparison, so a `realpath`-only difference between them - a
+ * transcript's recorded cwd/file vs. what `git rev-parse --show-toplevel`
+ * prints, e.g. Windows' 8.3 short form (`RUNNER~1`) vs. its long name, or
+ * macOS's `/var` vs. `/private/var` for a symlinked checkout - cannot make
+ * `abs` look like it falls outside `root` (or vice versa) when it really
+ * doesn't. Returns `null` when `abs` (canonicalised) is not `root` itself or
+ * underneath it, so callers can use that as the single containment check
+ * instead of separately calling `isUnderRepo`.
  */
-export function toRepoRel(root: string, abs: string): string {
-  return path.relative(root, abs).split(path.sep).join('/');
+export function toRepoRel(root: string, abs: string): string | null {
+  const rel = path.relative(canonicalPath(root), canonicalPath(abs));
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return rel.split(path.sep).join('/');
 }
 
 export function isDir(p: string): boolean {
