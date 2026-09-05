@@ -2,6 +2,9 @@
 
 ## Dev setup
 
+Node 20 or newer for development (the test toolchain needs it; the shipped
+bundle itself runs on Node 18.3+ and CI builds and smoke-tests it there).
+
 ```
 npm install
 npm test              # tsc, biome, check-skill, build, then the vitest suite

@@ -51,8 +51,16 @@ jobs:
       - run: npm ci
 
       # GIT_EDITOR is deliberately not set: the suite must be non-interactive on its own.
+      # The dev toolchain (vitest's bundled vite) needs Node >= 20; the shipped
+      # bundle targets Node 18, so Node 18 runners build it and run the two smoke
+      # steps below against it instead of the suite.
       - name: Typecheck, lint, build, test
+        if: matrix.node != 18
         run: npm test
+
+      - name: Build only (Node 18)
+        if: matrix.node == 18
+        run: npm run build
 
       # The bundle in skills/promptlog/scripts/promptlog.js is committed because
       # the plugin marketplaces and `npx skills add` install straight from git.
