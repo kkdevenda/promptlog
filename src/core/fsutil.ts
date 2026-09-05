@@ -8,6 +8,18 @@ import path from 'node:path';
 import { isRecord } from './json';
 import type { JsonRecord } from './model';
 
+/**
+ * Repo-relative, forward-slash path from `root` to `abs` - git's own
+ * convention for a path name (`git diff --cached`, a tree entry, a trailer's
+ * file evidence): always `/`-separated, never the host separator, so it can
+ * be compared as text against what git itself prints. The one place this
+ * conversion happens; every repo-relative path in the codebase goes through
+ * it rather than repeating `path.relative(...).split(path.sep).join('/')`.
+ */
+export function toRepoRel(root: string, abs: string): string {
+  return path.relative(root, abs).split(path.sep).join('/');
+}
+
 export function isDir(p: string): boolean {
   try {
     return fs.statSync(p).isDirectory();

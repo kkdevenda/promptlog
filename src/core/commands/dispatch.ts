@@ -102,11 +102,27 @@ function computeGitCmd(): string {
   }
 }
 
-/** Run a chained hook file (or `lefthook run <hook>`); never throws. */
+/**
+ * Run a chained hook file (or `lefthook run <hook>`); never throws.
+ *
+ * `viaSh`: a chained hook is, almost always, a shell script (a legacy hook
+ * we rotated aside, husky's shim, a previous `core.hooksPath`'s file) - fine
+ * to `spawnSync` directly on POSIX, where the kernel reads its `#!` line
+ * itself, but Node's `spawnSync` on win32 cannot execute a shebang file at
+ * all: there is no kernel-level exec-by-shebang on Windows, so it fails with
+ * ENOENT (silently swallowed below as "not a failure to report", which is
+ * how chained hooks went missing entirely on Windows). Git for Windows puts
+ * its own `sh` on PATH for exactly this reason, so on win32 every chained
+ * hook FILE runs as `sh <file> <args>` instead. `lefthook` is not a file we
+ * found on disk but a command name resolved on PATH (`lefthook.exe` /
+ * `.cmd`), which Windows' own `CreateProcess` + PATHEXT already knows how to
+ * run directly - so the caller marks that one `direct: true` and it never
+ * goes through `sh`.
+ */
 function runChained(
   file: string,
   args: string[],
-  opts: { cwd: string; env: NodeJS.ProcessEnv; stdin: Buffer | undefined },
+  opts: { cwd: string; env: NodeJS.ProcessEnv; stdin: Buffer | undefined; viaSh?: boolean },
 ): number {
   const spawnOptions: SpawnSyncOptions = {
     cwd: opts.cwd,
@@ -116,7 +132,7 @@ function runChained(
   };
   let r: SpawnSyncReturns<string | Buffer>;
   try {
-    r = spawnSync(file, args, spawnOptions);
+    r = opts.viaSh ? spawnSync('sh', [file, ...args], spawnOptions) : spawnSync(file, args, spawnOptions);
   } catch {
     return 0;
   }
@@ -204,8 +220,11 @@ function runDispatch(hookName: string, hookArgs: string[], chainDirRaw: string, 
   // ---- chain to whatever else wants this hook ----------------------------
   let status = 0;
   const runOpts = { cwd, env: nextEnv, stdin: stdinBuf };
-  const chain = (file: string, args: string[]): void => {
-    const rc = runChained(file, args, runOpts);
+  // Every chained HOOK FILE runs through `sh` on win32 (see runChained's own
+  // comment); a bare command name resolved on PATH, like `lefthook`, is
+  // passed `direct: true` and runs unchanged on every platform.
+  const chain = (file: string, args: string[], { direct = false }: { direct?: boolean } = {}): void => {
+    const rc = runChained(file, args, { ...runOpts, viaSh: process.platform === 'win32' && !direct });
     if (rc !== 0) status = rc;
   };
 
@@ -274,7 +293,7 @@ function runDispatch(hookName: string, hookArgs: string[], chainDirRaw: string, 
     const hasLefthookConfig = ['lefthook.yml', 'lefthook.yaml', '.lefthook.yml'].some((f) =>
       fs.existsSync(path.join(top, f)),
     );
-    if (hasLefthookConfig) chain('lefthook', ['run', hookName]);
+    if (hasLefthookConfig) chain('lefthook', ['run', hookName], { direct: true });
   }
 
   return status;

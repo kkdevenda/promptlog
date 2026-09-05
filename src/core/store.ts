@@ -25,6 +25,7 @@ import * as gitmod from './git';
 import { num, rec } from './json';
 import type { Turn } from './model';
 import type { RedactConfig } from './redact';
+import { envHome } from './util';
 
 export const STORE_DIR = '.promptlog';
 const VERSION = 1;
@@ -114,11 +115,16 @@ function collapseAgainst(target: string, home: string): string | null {
  * The comparison also folds `/` and `\` together (see `collapseAgainst`) so
  * a Windows home and a path using either slash style still collapse - and
  * the result is always `~/forward/slash/form`, per DESIGN.md.
+ *
+ * `home` defaults to `envHome(process.env)`, not a bare `os.homedir()`: on
+ * win32 `os.homedir()` reads only `USERPROFILE`, but an injected `HOME`
+ * (a sandboxed test, a shell that sets both) must be honoured too, or a
+ * path built against that `HOME` never collapses. Trailing and optional, so
+ * every existing call site keeps working unchanged.
  */
-export function homeCollapse(p: string | null | undefined): string {
+export function homeCollapse(p: string | null | undefined, home: string = envHome(process.env)): string {
   const s = p ?? '';
   if (!s) return s;
-  const home = os.homedir();
   const direct = collapseAgainst(s, home);
   if (direct !== null) return direct;
   if (!home || !path.isAbsolute(s)) return s;
@@ -133,13 +139,14 @@ export function homeCollapse(p: string | null | undefined): string {
  * `~/x` -> a platform path, `~\x` accepted too (DESIGN.md "Repo store":
  * `homeExpand` reads either slash style a home-collapsed path might have
  * been written with, since an older record or a hand-edited one could still
- * carry the host separator).
+ * carry the host separator). `home` defaults to `envHome(process.env)`, for
+ * the same reason as `homeCollapse` above.
  */
-export function homeExpand(p: string | null | undefined): string {
+export function homeExpand(p: string | null | undefined, home: string = envHome(process.env)): string {
   const s = p ?? '';
-  if (s === '~') return os.homedir();
+  if (s === '~') return home;
   if (s.startsWith('~/') || s.startsWith('~\\')) {
-    return path.join(os.homedir(), ...s.slice(2).split(/[/\\]+/));
+    return path.join(home, ...s.slice(2).split(/[/\\]+/));
   }
   return s;
 }

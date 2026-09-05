@@ -69,6 +69,9 @@ function errorMessage(e) {
 }
 
 // src/core/fsutil.ts
+function toRepoRel(root, abs) {
+  return import_node_path.default.relative(root, abs).split(import_node_path.default.sep).join("/");
+}
 function isDir(p) {
   try {
     return import_node_fs.default.statSync(p).isDirectory();
@@ -325,15 +328,17 @@ function relativeTo(root, abs) {
   if (!root) return null;
   const inside = (rel) => rel && !rel.startsWith("..") && !import_node_path2.default.isAbsolute(rel);
   const direct = import_node_path2.default.relative(root, abs);
-  if (inside(direct)) return direct.split(import_node_path2.default.sep).join("/");
-  const alt = import_node_path2.default.relative(realpathSafe(root), realpathish(abs));
-  if (inside(alt)) return alt.split(import_node_path2.default.sep).join("/");
+  if (inside(direct)) return toRepoRel(root, abs);
+  const realRoot = realpathSafe(root);
+  const realAbs = realpathish(abs);
+  const alt = import_node_path2.default.relative(realRoot, realAbs);
+  if (inside(alt)) return toRepoRel(realRoot, realAbs);
   return null;
 }
 function locateFile(file, { cwd, root }) {
   let abs = String(file ?? "");
   if (!abs) return null;
-  if (!import_node_path2.default.posix.isAbsolute(abs)) abs = import_node_path2.default.posix.resolve(cwd || process.cwd(), abs);
+  if (!import_node_path2.default.isAbsolute(abs)) abs = import_node_path2.default.resolve(cwd || process.cwd(), abs);
   return { file: abs, rel: relativeTo(root, abs) };
 }
 
@@ -3195,7 +3200,7 @@ function normalizeRepoPath(p, root) {
   let s = String(p ?? "");
   if (!s) return "";
   if (import_node_path17.default.isAbsolute(s) && root) {
-    const rel = import_node_path17.default.relative(root, s);
+    const rel = toRepoRel(root, s);
     if (rel && !rel.startsWith("..")) s = rel;
   }
   return s.split(import_node_path17.default.sep).join("/").replace(/^\.\//, "");
@@ -3359,7 +3364,7 @@ function runChained(file, args, opts) {
   };
   let r;
   try {
-    r = (0, import_node_child_process3.spawnSync)(file, args, spawnOptions);
+    r = opts.viaSh ? (0, import_node_child_process3.spawnSync)("sh", [file, ...args], spawnOptions) : (0, import_node_child_process3.spawnSync)(file, args, spawnOptions);
   } catch {
     return 0;
   }
@@ -3424,8 +3429,8 @@ function runDispatch(hookName, hookArgs, chainDirRaw, ctx) {
   }
   let status2 = 0;
   const runOpts = { cwd, env: nextEnv, stdin: stdinBuf };
-  const chain = (file, args) => {
-    const rc = runChained(file, args, runOpts);
+  const chain = (file, args, { direct = false } = {}) => {
+    const rc = runChained(file, args, { ...runOpts, viaSh: process.platform === "win32" && !direct });
     if (rc !== 0) status2 = rc;
   };
   const selfAbs = canon(process.argv[1] ?? "");
@@ -3482,7 +3487,7 @@ function runDispatch(hookName, hookArgs, chainDirRaw, ctx) {
     const hasLefthookConfig = ["lefthook.yml", "lefthook.yaml", ".lefthook.yml"].some(
       (f) => import_node_fs9.default.existsSync(import_node_path18.default.join(top, f))
     );
-    if (hasLefthookConfig) chain("lefthook", ["run", hookName]);
+    if (hasLefthookConfig) chain("lefthook", ["run", hookName], { direct: true });
   }
   return status2;
 }
@@ -4556,10 +4561,9 @@ function collapseAgainst(target, home) {
   }
   return null;
 }
-function homeCollapse(p) {
+function homeCollapse(p, home = envHome(process.env)) {
   const s = p ?? "";
   if (!s) return s;
-  const home = import_node_os12.default.homedir();
   const direct = collapseAgainst(s, home);
   if (direct !== null) return direct;
   if (!home || !import_node_path22.default.isAbsolute(s)) return s;
@@ -4569,11 +4573,11 @@ function homeCollapse(p) {
   if (viaReal !== null) return viaReal;
   return s;
 }
-function homeExpand(p) {
+function homeExpand(p, home = envHome(process.env)) {
   const s = p ?? "";
-  if (s === "~") return import_node_os12.default.homedir();
+  if (s === "~") return home;
   if (s.startsWith("~/") || s.startsWith("~\\")) {
-    return import_node_path22.default.join(import_node_os12.default.homedir(), ...s.slice(2).split(/[/\\]+/));
+    return import_node_path22.default.join(home, ...s.slice(2).split(/[/\\]+/));
   }
   return s;
 }

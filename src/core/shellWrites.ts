@@ -9,6 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { toRepoRel } from './fsutil';
+
 /**
  * `parseShellWrites` parses POSIX shell command TEXT, not a real filesystem
  * path - the command string an agent ran, which uses `/` regardless of the
@@ -264,9 +266,11 @@ export function relativeTo(root: string | null | undefined, abs: string): string
   if (!root) return null;
   const inside = (rel: string) => rel && !rel.startsWith('..') && !path.isAbsolute(rel);
   const direct = path.relative(root, abs);
-  if (inside(direct)) return direct.split(path.sep).join('/');
-  const alt = path.relative(realpathSafe(root), realpathish(abs));
-  if (inside(alt)) return alt.split(path.sep).join('/');
+  if (inside(direct)) return toRepoRel(root, abs);
+  const realRoot = realpathSafe(root);
+  const realAbs = realpathish(abs);
+  const alt = path.relative(realRoot, realAbs);
+  if (inside(alt)) return toRepoRel(realRoot, realAbs);
   return null;
 }
 
@@ -278,12 +282,18 @@ export interface LocatedFile {
 /**
  * Absolute path (resolved against the session's cwd) plus `rel`.
  *
- * `file` and `cwd` are POSIX text like everything else in this module (a
- * transcript's recorded paths are forward-slash, whatever the host), so the
- * combination uses `path.posix` and the result stays forward-slash. The one
- * place a platform path enters is `relativeTo`'s `realpath` fallback below,
- * which asks the real filesystem whether `abs` exists under the real repo
- * root - and folds its answer straight back into forward-slash `rel`.
+ * Unlike the shell-command TEXT parsed above, `file` and `cwd` here are
+ * REAL filesystem paths: an Edit/Write tool's `file_path`, a V4A patch's
+ * `cwd`, a transcript's recorded session cwd - on Windows these are native
+ * (`C:\Users\...`, or a drive-letter path with forward slashes), not the
+ * POSIX text `parseShellWrites` produces. Treating them as POSIX text -
+ * `path.posix.isAbsolute` doesn't recognise a drive letter, so `C:\...` and
+ * even `C:/...` read as "relative" - would resolve them against the wrong
+ * base and silently drop the evidence. Resolution therefore uses the real,
+ * platform-native `path` module (which `relativeTo` already does for its
+ * `realpath` fallback), so both a real absolute path and a genuinely
+ * relative one land correctly whatever host produced them; `rel` stays
+ * forward-slash because `relativeTo` -> `toRepoRel` makes it so.
  */
 export function locateFile(
   file: string | null | undefined,
@@ -291,6 +301,6 @@ export function locateFile(
 ): LocatedFile | null {
   let abs = String(file ?? '');
   if (!abs) return null;
-  if (!path.posix.isAbsolute(abs)) abs = path.posix.resolve(cwd || process.cwd(), abs);
+  if (!path.isAbsolute(abs)) abs = path.resolve(cwd || process.cwd(), abs);
   return { file: abs, rel: relativeTo(root, abs) };
 }

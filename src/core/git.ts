@@ -9,6 +9,7 @@
 
 import { type SpawnSyncOptions, spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { toRepoRel } from './fsutil';
 import type { Turn } from './model';
 
 export const TRAILER_KEY = 'Prompt-Id';
@@ -347,7 +348,7 @@ export function normalizeRepoPath(p: string | null | undefined, root: string | n
   let s = String(p ?? '');
   if (!s) return '';
   if (path.isAbsolute(s) && root) {
-    const rel = path.relative(root, s);
+    const rel = toRepoRel(root, s);
     if (rel && !rel.startsWith('..')) s = rel;
   }
   return s.split(path.sep).join('/').replace(/^\.\//, '');

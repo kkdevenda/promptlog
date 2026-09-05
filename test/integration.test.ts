@@ -24,7 +24,7 @@ import type { SessionDoc, TurnRecord } from '../src/core/records';
 import type { IndexHeader } from '../src/core/storeIndex';
 import * as storeIndex from '../src/core/storeIndex';
 import type { Ctx } from '../src/core/util';
-import { tmpDir } from './helpers';
+import { diag, tmpDir } from './helpers';
 
 const REPO = path.resolve(__dirname, '..');
 const PROMPTLOG = path.join(REPO, 'bin', 'promptlog.js');
@@ -226,12 +226,16 @@ function git(
   { input }: { input?: string } = {},
 ): RunResult {
   const r: SpawnSyncReturns<string> = spawnSync('git', args, { cwd, env, input, encoding: 'utf8' });
-  return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+  // A spawn failure (git not even found - e.g. PATH is missing its
+  // directory) leaves `status` null and `stderr` empty: the informative part
+  // is `r.error`, so fold it in rather than reporting a blank stderr.
+  const stderr = r.stderr || (r.error ? String(r.error.stack || r.error) : '');
+  return { code: r.status, stdout: r.stdout || '', stderr };
 }
 
 function gitOk(env: NodeJS.ProcessEnv, cwd: string, args: string[], opts?: { input?: string }): string {
   const r = git(env, cwd, args, opts);
-  expect(r.code, `git ${args.join(' ')} failed: ${r.stderr}`).toBe(0);
+  expect(r.code, `git ${args.join(' ')} failed (cwd=${cwd}): ${r.stderr}`).toBe(0);
   return r.stdout;
 }
 
@@ -521,8 +525,15 @@ test('global install: --global sandboxes to a temp HOME and hooks still fire', (
 
   const hookDir = path.join(home, '.promptlog', 'hooks');
   expect(gitOk(env, repoDir, ['config', '--global', '--get', 'core.hooksPath']).trim()).toBe(hookDir);
-  // The real ~/.gitconfig and ~/.promptlog were never touched.
-  expect(fs.readFileSync(env.GIT_CONFIG_GLOBAL as string, 'utf8')).toContain(hookDir);
+  // The real ~/.gitconfig and ~/.promptlog were never touched. git itself
+  // writes a hooksPath value with `/`-only separators into the config file
+  // regardless of host, so normalise both sides before comparing.
+  expect(
+    fs
+      .readFileSync(env.GIT_CONFIG_GLOBAL as string, 'utf8')
+      .split(path.sep)
+      .join('/'),
+  ).toContain(hookDir.split(path.sep).join('/'));
   expect(
     fs.existsSync(path.join(repoDir, '.git', 'hooks', 'prepare-commit-msg')),
     'no per-repo install',
@@ -1390,16 +1401,42 @@ test('a checkout path with an apostrophe, a space and a non-ASCII char still yie
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.cpSync(path.join(REPO, part), dest, { recursive: true, force: true });
   }
+
+  // The copy must be COMPLETE before `init` ever runs from it - a partial
+  // copy (e.g. a path-length limit silently dropping a deep file on
+  // Windows) shows up there only as `require`'s own unhelpful "Cannot find
+  // module", with nothing to say why. Check the two files `bin/promptlog.js`
+  // actually needs and list the whole tree when either is missing.
+  const binEntry = path.join(checkout, 'bin', 'promptlog.js');
+  const bundledEntry = path.join(checkout, 'skills', 'promptlog', 'scripts', 'promptlog.js');
+  const listCheckout = (): string => {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of fs.readdirSync(dir)) {
+        const full = path.join(dir, name);
+        if (fs.statSync(full).isDirectory()) walk(full);
+        else out.push(full);
+      }
+    };
+    walk(checkout);
+    return out.join('\n');
+  };
+  expect(fs.existsSync(binEntry), `bin/promptlog.js missing after copy:\n${listCheckout()}`).toBe(true);
+  expect(
+    fs.existsSync(bundledEntry),
+    `skills/promptlog/scripts/promptlog.js missing after copy:\n${listCheckout()}`,
+  ).toBe(true);
+
   const repoDir = tmpDir('repo-', odd);
   writeTranscript(home, repoDir);
   gitOk(env, repoDir, ['init', '-q', '-b', 'main']);
 
-  const init = spawnSync(process.execPath, [path.join(checkout, 'bin', 'promptlog.js'), 'init'], {
+  const init = spawnSync(process.execPath, [binEntry, 'init'], {
     cwd: repoDir,
     env,
     encoding: 'utf8',
   });
-  expect(init.status, `init failed: ${init.stderr}`).toBe(0);
+  expect(init.status, `init failed (stdout=${JSON.stringify(init.stdout)}): ${init.stderr}`).toBe(0);
 
   const hooksDir = path.join(repoDir, '.git', 'hooks');
   // node resolves the running module's real path (macOS: /var -> /private/var).
@@ -1475,7 +1512,21 @@ test('a dispatcher whose baked promptlog.js no longer exists still lets the comm
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
   fs.symlinkSync(process.execPath, path.join(bin, 'node'));
-  const bare: NodeJS.ProcessEnv = { ...env, PATH: `${bin}:/usr/bin:/bin` };
+  // Only the promptlog shim must disappear from PATH - not git itself. On
+  // POSIX, /usr/bin and /bin are where git always lives; on Windows there is
+  // no such fixed location, so keep whatever entries of the REAL PATH point
+  // into a Git install (Git for Windows needs its own bin/cmd directory, and
+  // often a sibling DLL directory, just to start up at all).
+  const pathDirs =
+    process.platform === 'win32'
+      ? [
+          bin,
+          ...String(env.PATH ?? '')
+            .split(path.delimiter)
+            .filter((p) => /git/i.test(p)),
+        ]
+      : [bin, '/usr/bin', '/bin'];
+  const bare: NodeJS.ProcessEnv = { ...env, PATH: pathDirs.join(path.delimiter) };
   const msg = commitFile(bare, repoDir, 'a.txt', 'promptlog is gone');
   expect(msg, 'nothing recorded').not.toMatch(/Prompt-Id/);
   expect(gitOk(bare, repoDir, ['log', '-1', '--format=%s']).trim()).toBe('promptlog is gone');
@@ -1493,7 +1544,11 @@ test('local init under a LOCAL relative core.hooksPath takes it over and chains 
 
   const init = promptlog(env, repoDir, ['init']);
   expect(init.code, init.stderr).toBe(0);
-  expect(init.stdout).toMatch(
+  // The path this message names is printed with the host's own separator
+  // (git itself writes `/`-only paths into hooksPath, our own message does
+  // not): normalise before matching so the regex's literal `/`s hold on
+  // Windows too.
+  expect(init.stdout.split(path.sep).join('/')).toMatch(
     /core\.hooksPath was .*custom-hooks; this repo now uses .*\.git\/hooks and chains/,
   );
   const hooksDir = path.join(repoDir, '.git', 'hooks');
@@ -1509,7 +1564,7 @@ test('local init under a LOCAL relative core.hooksPath takes it over and chains 
 
   let msg = commitFile(env, repoDir, 'a.txt', 'both run');
   expect(msg, `promptlog ran: ${JSON.stringify(msg)}`).toMatch(new RegExp(`Prompt-Id: claude:${SID8}:`));
-  expect(runsOf(marker), 'previous hook ran exactly once').toEqual(['ran']);
+  expect(runsOf(marker), `previous hook ran exactly once\n${diag(repoDir)}`).toEqual(['ran']);
 
   // Idempotent: a second init neither rotates our dispatcher nor doubles the chain.
   expect(promptlog(env, repoDir, ['init']).code).toBe(0);
@@ -1521,7 +1576,7 @@ test('local init under a LOCAL relative core.hooksPath takes it over and chains 
   fs.writeFileSync(marker, '', 'utf8');
   msg = commitFile(env, repoDir, 'b.txt', 'still both, still once');
   expect(msg).toMatch(/Prompt-Id: claude:/);
-  expect(runsOf(marker)).toEqual(['ran']);
+  expect(runsOf(marker), diag(repoDir)).toEqual(['ran']);
 });
 
 test('local init under a GLOBAL absolute core.hooksPath chains it and leaves the global config alone', () => {
@@ -1546,13 +1601,13 @@ test('local init under a GLOBAL absolute core.hooksPath chains it and leaves the
 
   const msg = commitFile(env, repoDir, 'a.txt', 'chain the global hooks');
   expect(msg).toMatch(/Prompt-Id: claude:/);
-  expect(runsOf(marker)).toEqual(['ran']);
+  expect(runsOf(marker), diag(repoDir)).toEqual(['ran']);
 
   expect(promptlog(env, repoDir, ['init']).code, 'idempotent').toBe(0);
   expect(fs.existsSync(path.join(hooksDir, 'pre-commit.legacy'))).toBe(false);
   fs.writeFileSync(marker, '', 'utf8');
   commitFile(env, repoDir, 'b.txt', 'again');
-  expect(runsOf(marker)).toEqual(['ran']);
+  expect(runsOf(marker), diag(repoDir)).toEqual(['ran']);
 });
 
 test('init --global with an existing global core.hooksPath chains it rather than clobbering it', () => {
@@ -1569,7 +1624,8 @@ test('init --global with an existing global core.hooksPath chains it rather than
 
   const init = promptlog(env, repoDir, ['init', '--global']);
   expect(init.code, init.stderr).toBe(0);
-  expect(init.stdout).toMatch(
+  // Normalise before matching: see the LOCAL relative test above.
+  expect(init.stdout.split(path.sep).join('/')).toMatch(
     /core\.hooksPath was .*old-hooks; git now uses .*\.promptlog\/hooks and chains/,
   );
   const hookDir = path.join(home, '.promptlog', 'hooks');
@@ -1585,7 +1641,7 @@ test('init --global with an existing global core.hooksPath chains it rather than
 
   let msg = commitFile(env, repoDir, 'a.txt', 'global chain');
   expect(msg).toMatch(/Prompt-Id: claude:/);
-  expect(runsOf(marker)).toEqual(['ran']);
+  expect(runsOf(marker), diag(repoDir)).toEqual(['ran']);
 
   // Idempotent: the second run must not chain ~/.promptlog/hooks to itself
   // and must keep chaining the old directory.
@@ -1597,7 +1653,7 @@ test('init --global with an existing global core.hooksPath chains it rather than
   fs.writeFileSync(marker, '', 'utf8');
   msg = commitFile(env, repoDir, 'b.txt', 'again');
   expect(msg).toMatch(/Prompt-Id: claude:/);
-  expect(runsOf(marker)).toEqual(['ran']);
+  expect(runsOf(marker), diag(repoDir)).toEqual(['ran']);
 
   // A per-repo init on top of a global install has nothing to add.
   const local = promptlog(env, repoDir, ['init']);
@@ -1612,7 +1668,7 @@ test('init --global with an existing global core.hooksPath chains it rather than
   fs.writeFileSync(marker, '', 'utf8');
   msg = commitFile(env, repoDir, 'c.txt', 'once, not twice');
   expect((msg.match(/Prompt-Id:/g) || []).length, `promptlog ran once: ${JSON.stringify(msg)}`).toBe(1);
-  expect(runsOf(marker)).toEqual(['ran']);
+  expect(runsOf(marker), diag(repoDir)).toEqual(['ran']);
 });
 
 test('husky-shaped hooksPath (.husky/_) runs the husky hook exactly once per commit', () => {
@@ -1643,13 +1699,13 @@ test('husky-shaped hooksPath (.husky/_) runs the husky hook exactly once per com
 
   const msg = commitFile(env, repoDir, 'a.txt', 'husky once');
   expect(msg).toMatch(/Prompt-Id: claude:/);
-  expect(runsOf(marker), `husky hook must run exactly once, via its shim: ${runsOf(marker)}`).toEqual([
-    'shim',
-    'husky',
-  ]);
+  expect(
+    runsOf(marker),
+    `husky hook must run exactly once, via its shim: ${runsOf(marker)}\n${diag(repoDir)}`,
+  ).toEqual(['shim', 'husky']);
 
   expect(promptlog(env, repoDir, ['init']).code, 'idempotent').toBe(0);
   fs.writeFileSync(marker, '', 'utf8');
   commitFile(env, repoDir, 'b.txt', 'husky once again');
-  expect(runsOf(marker)).toEqual(['shim', 'husky']);
+  expect(runsOf(marker), diag(repoDir)).toEqual(['shim', 'husky']);
 });
