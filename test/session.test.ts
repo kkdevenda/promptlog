@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { slug } from '../src/agents/claude/locate';
 import { findGitRoot } from '../src/core/fsutil';
 import { listCandidateSessions, resolveSession } from '../src/core/session';
 
@@ -24,8 +25,7 @@ function makeFixture(): { home: string; repoRoot: string } {
 }
 
 function claudeSlugDir(home: string, cwd: string): string {
-  const slug = cwd.split('/').join('-');
-  return path.join(home, '.claude', 'projects', slug);
+  return path.join(home, '.claude', 'projects', slug(cwd));
 }
 
 function writeClaudeSession(

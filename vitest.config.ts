@@ -4,9 +4,10 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
     testTimeout: 30_000,
-    // Integration tests spawn many git and node processes; on 3-core CI
-    // runners more workers starve the worker RPC and vitest reports a timeout.
-    maxWorkers: 2,
+    // The integration files spawn dozens of git and node processes; run test
+    // files one at a time so they cannot starve vitest's own worker channel on
+    // small CI runners (seen as "Timeout calling onTaskUpdate" with all tests green).
+    fileParallelism: false,
     env: { PROMPTLOG_NO_UPDATE_CHECK: '1' },
   },
 });

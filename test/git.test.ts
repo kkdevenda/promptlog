@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from 'vitest';
+import { slug } from '../src/agents/claude/locate';
 // Ported from OLD test/git.test.js. The `attribution` and `commands/repo`
 // modules these tests exercise are other work packages and do not exist yet
 // in NEW; this whole file will fail to import until they land (tracked, not
@@ -355,7 +356,7 @@ test('candidateSessions narrows to the named agent, symmetrically', () => {
   const repoDir = path.join(home, 'repo');
   fs.mkdirSync(path.join(repoDir, '.git'), { recursive: true });
   const sid = 'c86e0429-3e3b-4f17-8262-35a6f0c85599';
-  const slugDir = path.join(home, '.claude', 'projects', repoDir.split(path.sep).join('-'));
+  const slugDir = path.join(home, '.claude', 'projects', slug(repoDir));
   fs.mkdirSync(slugDir, { recursive: true });
   fs.writeFileSync(
     path.join(slugDir, `${sid}.jsonl`),

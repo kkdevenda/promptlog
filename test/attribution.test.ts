@@ -29,6 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { claude } from '../src/agents/claude';
+import { slug } from '../src/agents/claude/locate';
 import { codex } from '../src/agents/codex';
 import * as attribution from '../src/core/attribution';
 import * as repoCmds from '../src/core/commands/repo';
@@ -99,7 +100,7 @@ function promptlog(
 
 /** Session A: Claude, with two Edits and a `sed -i`. */
 function writeClaudeTranscript(home: string, repoDir: string): string {
-  const dir = path.join(home, '.claude', 'projects', repoDir.split(path.sep).join('-'));
+  const dir = path.join(home, '.claude', 'projects', slug(repoDir));
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${SID_A}.jsonl`);
   const base = { isSidechain: false, cwd: repoDir, sessionId: SID_A };
@@ -426,7 +427,7 @@ describe('attribution', () => {
       git(env, repoDir, ['commit', '-q', '-m', 'base']);
 
       const content = 'line one\nline two\nline three\n';
-      const dir = path.join(home, '.claude', 'projects', repoDir.split(path.sep).join('-'));
+      const dir = path.join(home, '.claude', 'projects', slug(repoDir));
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, `${SID_A}.jsonl`);
       const base = { isSidechain: false, cwd: repoDir, sessionId: SID_A };
@@ -576,7 +577,7 @@ describe('attribution', () => {
       git(env, repoDir, ['add', '.']);
       git(env, repoDir, ['commit', '-q', '-m', 'base']);
 
-      const dir = path.join(home, '.claude', 'projects', repoDir.split(path.sep).join('-'));
+      const dir = path.join(home, '.claude', 'projects', slug(repoDir));
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, `${SID_A}.jsonl`);
       const base = { isSidechain: false, cwd: repoDir, sessionId: SID_A };
@@ -713,7 +714,7 @@ describe('attribution', () => {
       git(env, repoDir, ['add', '.']);
       git(env, repoDir, ['commit', '-q', '-m', 'base']);
 
-      const dir = path.join(home, '.claude', 'projects', repoDir.split(path.sep).join('-'));
+      const dir = path.join(home, '.claude', 'projects', slug(repoDir));
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, `${SID_A}.jsonl`);
       const base = { isSidechain: false, cwd: repoDir, sessionId: SID_A };
@@ -791,7 +792,7 @@ describe('attribution', () => {
       git(env, repoDir, ['commit', '-q', '-m', 'base']);
 
       const written = `${stable1}first written line of the module\n${stable2}second written line of the module\n`;
-      const dir = path.join(home, '.claude', 'projects', repoDir.split(path.sep).join('-'));
+      const dir = path.join(home, '.claude', 'projects', slug(repoDir));
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, `${SID_A}.jsonl`);
       const base = { isSidechain: false, cwd: repoDir, sessionId: SID_A };
