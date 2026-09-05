@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from 'vitest';
+import { slug } from '../src/agents/claude/locate';
 import { parseClaudeSession } from '../src/agents/claude/parser';
 import { renderStatus, statusStats } from '../src/core/renderStatus';
 import { Colors } from '../src/core/util';
@@ -21,10 +22,6 @@ const BRANCH_FIXTURE = path.join(__dirname, 'fixtures', 'claude', 'branch.jsonl'
 
 function loadBranchSession() {
   return parseClaudeSession(BRANCH_FIXTURE);
-}
-
-function slug(cwd: string): string {
-  return cwd.split(path.sep).join('-');
 }
 
 function runStatusline({ input, cwd, home }: { input: string; cwd: string; home: string }) {

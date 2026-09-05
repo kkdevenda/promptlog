@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from 'vitest';
+import { slug } from '../src/agents/claude/locate';
 import * as merge from '../src/core/merge';
 import type { SessionDoc, TurnRecord } from '../src/core/records';
 
@@ -37,10 +38,6 @@ function iso(offsetMs: number): string {
 function mkuuid(n: number): string {
   const hex = String(n).padStart(4, '0');
   return `${hex}aaaa-bbbb-cccc-dddd-${hex}eeeeeeee`;
-}
-
-function slug(cwd: string): string {
-  return cwd.split(path.sep).join('-');
 }
 
 /** A fresh, isolated HOME + git identity. Does not create a repo. */

@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, onTestFinished, test } from 'vitest';
+import { slug } from '../src/agents/claude/locate';
 import * as recall from '../src/core/commands/recall';
 import type { SessionDoc, TurnRecord } from '../src/core/records';
 import type { IndexHeader } from '../src/core/storeIndex';
@@ -31,10 +32,6 @@ const SESSION_ID = 'c86e0429-3e3b-4f17-8262-35a6f0c85599';
 const SID8 = SESSION_ID.slice(0, 8);
 
 // -------------------------------------------------------------- scaffolding
-
-function slug(cwd: string): string {
-  return cwd.split(path.sep).join('-');
-}
 
 function mkuuid(n: number): string {
   const hex = String(n).padStart(4, '0');
